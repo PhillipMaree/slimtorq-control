@@ -1,3 +1,0 @@
-rm -f 428.fmutmp/sources/SlotlessPMSM_init.xml
-cp -a "/usr/bin/../share/omc/runtime/c/fmi/buildproject/"* 428.fmutmp/sources
-cp -a SlotlessPMSM_FMU.libs 428.fmutmp/sources/

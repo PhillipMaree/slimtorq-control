@@ -79,6 +79,7 @@ class FocConfig:
     bw_hz: float       # closed-loop current bandwidth target [Hz]
     Rs: float          # phase resistance [Ohm]
     Ls: float          # synchronous inductance [H]
+    psi_m: float       # PM flux linkage [Wb], used for torque <-> iq conversion
     u_max: float       # per-axis voltage limit [V]
     p: int             # pole pairs (electrical angle = p * mech angle)
 
@@ -101,25 +102,46 @@ class CurrentLoopFOC:
         Ki = cfg.Rs * w_bw
         self.pi_d = PIController(Kp=Kp, Ki=Ki, u_max=cfg.u_max, u_min=-cfg.u_max)
         self.pi_q = PIController(Kp=Kp, Ki=Ki, u_max=cfg.u_max, u_min=-cfg.u_max)
+        # Te = 1.5 * p * psi_m * iq  =>  iq* = T*/(1.5 * p * psi_m).
+        self.kt_dq = 1.5 * cfg.p * cfg.psi_m
         # last-step internals exposed for logging
-        self.id_m = 0.0
-        self.iq_m = 0.0
-        self.ud   = 0.0
-        self.uq   = 0.0
+        self.id_ref = 0.0
+        self.iq_ref = 0.0
+        self.id_m   = 0.0
+        self.iq_m   = 0.0
+        self.v_d    = 0.0
+        self.v_q    = 0.0
         self.theta_e = 0.0
 
+    def iq_ref_from_torque(self, T_ref: float) -> float:
+        """Convert a desired electromagnetic torque [N.m] to a q-axis current
+        reference [A] for a non-salient PMSM (Ld = Lq). id is kept at zero, so
+        all torque comes from iq."""
+        return T_ref / self.kt_dq
+
     def step(self, i_a: float, i_b: float, i_c: float, theta_m_meas: float,
-             id_ref: float, iq_ref: float) -> tuple[float, float, float]:
+             T_ref: float) -> tuple[float, float, float]:
+        """One FOC tick.
+
+        Pipeline:  i_abc + theta_m_meas
+                   -> Clarke -> Park (theta_e = p*theta_m_meas) -> (id, iq)
+                   -> PI on id (ref = 0) and iq (ref = T_ref / kt_dq) -> (v_d, v_q)
+                   -> InvPark -> InvClarke -> v_abc
+        """
+        id_ref = 0.0                          # surface-PM: zero d-axis current
+        iq_ref = self.iq_ref_from_torque(T_ref)
+
         theta_e = self.cfg.p * theta_m_meas
         alpha, beta = clarke(i_a, i_b, i_c)
         id_m, iq_m = park(alpha, beta, theta_e)
-        ud = self.pi_d.step(id_ref, id_m, self.cfg.Ts)
-        uq = self.pi_q.step(iq_ref, iq_m, self.cfg.Ts)
-        v_alpha, v_beta = inv_park(ud, uq, theta_e)
+        v_d = self.pi_d.step(id_ref, id_m, self.cfg.Ts)
+        v_q = self.pi_q.step(iq_ref, iq_m, self.cfg.Ts)
+        v_alpha, v_beta = inv_park(v_d, v_q, theta_e)
         v_a, v_b, v_c = inv_clarke(v_alpha, v_beta)
 
-        self.id_m, self.iq_m, self.ud, self.uq, self.theta_e = (
-            id_m, iq_m, ud, uq, theta_e)
+        (self.id_ref, self.iq_ref, self.id_m, self.iq_m,
+         self.v_d, self.v_q, self.theta_e) = (
+            id_ref, iq_ref, id_m, iq_m, v_d, v_q, theta_e)
         return v_a, v_b, v_c
 
 
