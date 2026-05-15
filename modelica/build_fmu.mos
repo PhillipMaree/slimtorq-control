@@ -1,0 +1,15 @@
+// OpenModelica script to compile Slimtorq.SlotlessPMSMPlant to an FMI 2.0 CS FMU.
+// Run from this directory:    omc build_fmu.mos
+// The resulting .fmu is written to the current directory (modelica/).
+
+loadModel(Modelica); getErrorString();
+loadFile("Slimtorq.mo"); getErrorString();
+
+fmuPath := buildModelFMU(
+  Slimtorq.SlotlessPMSMPlant,
+  version = "2.0",
+  fmuType = "cs",
+  platforms = {"dynamic"}
+);
+getErrorString();
+fmuPath;

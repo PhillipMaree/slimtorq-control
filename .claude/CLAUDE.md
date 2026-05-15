@@ -1,0 +1,1 @@
+Always enfore rules in [OpenModelica](rules/openmodelica.md) when doing OpenModelica related development work
