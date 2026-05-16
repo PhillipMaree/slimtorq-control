@@ -15,9 +15,10 @@ The motor is parameterised from [catalog.yaml](catalog.yaml) against the Alva
 flowchart LR
     subgraph CTRL["controller — runs at dt_ctrl = T_pwm"]
         FOC["FOCController.step()
-        i_abc + θ_e + (i_d_ref, i_q_ref)
+        i_abc + θ_e + ω_e + (i_d_ref, i_q_ref)
         → Clarke → Park
         → PI(d), PI(q)
+        → + dq decoupling + BEMF feedforward
         → vector sat (|v_dq| ≤ Vdc/2)
         → InvPark → InvClarke"]
     end
@@ -50,7 +51,7 @@ flowchart LR
     PWM -->|d_abc, s_abc| INV
     INV -->|v_a, v_b, v_c| PMSM
     PMSM -->|i_a, i_b, i_c, θ_m, ω_m, T_e| ENC
-    ENC -->|θ_e_meas, i_abc_meas| FOC
+    ENC -->|θ_e_meas, ω_e_meas, i_abc_meas| FOC
 
     classDef ctrl fill:#e3f2fd,stroke:#1976d2;
     classDef pow  fill:#fff3e0,stroke:#f57c00;
@@ -71,6 +72,7 @@ Why this architecture (and not the simpler "FOC outputs continuous v_abc straigh
 | **Switching ripple** in i_abc at f_pwm | Naturally — `Inverter` emits square ±Vdc/2 phase voltages; FMU integrates them. | Triangular ripple of amplitude `≈ Vdc·T_pwm/(8·L_s)` on top of the fundamental current. Drives iron losses, EMI, audible noise, current-sensor bandwidth. |
 | **Dead time** (1–3 µs gate-driver blanking) | `Inverter` tracks per-leg t_since_edge; during the t_dead window, freewheel diode clamps v_k = −sign(i_k)·Vdc/2. | 5th + 7th harmonic distortion in i_abc; small low-frequency torque ripple FOC's integrator absorbs. Set `t_dead = 0` to disable. |
 | **Vdc utilisation limit** (sinusoidal-PWM linear range `\|v_phase\| ≤ Vdc/2`) | `FOCController` clips `(v_d, v_q)` to magnitude `V_max = Vdc/2` *before* inverse Park. Anti-windup freezes both integrators when the vector saturates. | Beyond the envelope, achievable torque plateaus; the PI-performance plot's `\|v_dq\|` trace clamps at the red line. |
+| **dq cross-coupling + BEMF** (`−ω_e·L_s·i_q` on d-axis; `+ω_e·L_s·i_d + ω_e·ψ_m` on q-axis) | `FOCController` adds them as feedforward to the raw PI output (so the per-axis plant the PI sees collapses to a pure R/L circuit; vector saturation acts on the combined PI + FF command). | At high speed the BEMF term `ω_e·ψ_m` dominates v_q; without feedforward the PI integrator absorbs it with tracking lag. With feedforward, i_q tracks immediately and the integrator only handles modelling error. |
 
 ## One tick of the inner loop
 
@@ -89,7 +91,7 @@ sequenceDiagram
     SIM->>ENC: step(θ_m, ω_m, i_abc, t)
     ENC-->>SIM: θ_m_meas, ω_m_meas, θ_e_meas, i_abc_meas
     alt control-tick boundary (every dt_ctrl)
-        SIM->>FOC: step(i_abc_meas, θ_e_meas, i_d_ref, i_q_ref, dt_ctrl)
+        SIM->>FOC: step(i_abc_meas, θ_e_meas, ω_e_meas, i_d_ref, i_q_ref, dt_ctrl)
         FOC-->>SIM: v_a_ref, v_b_ref, v_c_ref
     end
     SIM->>PWM: step(v_*_ref, Vdc, t, dt_sim)
@@ -167,7 +169,8 @@ graph TD
 | [src/model.py](src/model.py) | All Pydantic v2 models — catalog-parsing schema, simulation-facing flat types (`PmsmModel`, `EncoderConfig`, `FocConfig`, `InverterConfig`, `TLRef`), and the catalog loader. `python -m model` cross-checks each variant against its catalog continuous-torque. |
 | [src/tuning.py](src/tuning.py) | Pure functions `auto_pi_gains_from_bw(R, L, bw_hz)` (pole-zero cancellation) and `modulus_optimum_tuning(R, L, f_pwm)` (Leonhard / Schroeder MO). |
 | [src/transform.py](src/transform.py) | Amplitude-invariant Clarke / Park + composed `abc_to_dq`, `dq_to_abc`. `python transform.py` round-trip self-test. |
-| [src/controller.py](src/controller.py) | `PIController` (parallel-form PI with split unsaturated/integrate API for shared anti-windup), `FOCController` (Clarke → Park → 2× PI → **vector saturation** → InvPark → InvClarke). |
+| [src/controller.py](src/controller.py) | `PIController` (parallel-form PI with split unsaturated/integrate API for shared anti-windup), `FOCController` (Clarke → Park → 2× PI → **dq decoupling + BEMF feedforward** → **vector saturation** → InvPark → InvClarke). |
+| [src/debug_foc.py](src/debug_foc.py) | Standalone FOC sanity-debug CLI. `uv run python src/debug_foc.py --all` walks an 11-step procedure (ideal-mode → re-enable each non-ideality) against a synthetic motor matching the docs (R_s=0.5 Ω, L_s=100 µH, ψ_m=0.02 Wb, p=4). Uses the `Simulator` debug knobs `i_q_ref_override`, `i_d_ref_override`, `T_L_override`, `bypass_pwm`. |
 | [src/encoder.py](src/encoder.py) | `FluxEncoder` (sample-and-hold + 3-harmonic cyclic error + N-bit quantization), `EncoderMeasurement` (composite wrapper adding `θ_e_meas` + i_abc pass-through). |
 | [src/switching.py](src/switching.py) | `PWMModulator` (centered duty + triangular carrier), `Inverter` (stateful, emulates gate-driver dead-time via freewheel-diode model), `PMSMAbcModel` (thin FMU wrapper). |
 | [src/simulator.py](src/simulator.py) | `Simulator` — owns the multi-rate loop (dt_sim, dt_ctrl, Ts_enc); returns one log dict per `step(t)`. |
@@ -191,6 +194,15 @@ v_q = −sin(θ_e)·v_α + cos(θ_e)·v_β
 ```
 v_d = R_s·i_d + L_s·di_d/dt − ω_e·L_s·i_q
 v_q = R_s·i_q + L_s·di_q/dt + ω_e·L_s·i_d + ω_e·ψ_m
+```
+
+**dq decoupling + BEMF feedforward** (added to the raw PI output, before vector saturation, so each PI sees a pure R/L plant)
+
+```
+ff_d = −ω_e_meas · L_s · i_q_meas
+ff_q =  ω_e_meas · L_s · i_d_meas + ω_e_meas · ψ_m
+v_d_raw = PI_d + ff_d
+v_q_raw = PI_q + ff_q
 ```
 
 **Vector saturation** before inverse Park
@@ -313,8 +325,9 @@ slimtorq-control/
     ├── controller.py                  PIController, FOCController
     ├── encoder.py                     FluxEncoder, EncoderMeasurement
     ├── switching.py                   PWMModulator, Inverter (dead time), PMSMAbcModel
-    ├── simulator.py                   Simulator (multi-rate loop)
+    ├── simulator.py                   Simulator (multi-rate loop) + debug overrides
     ├── main.py                        run() + parquet writer
+    ├── debug_foc.py                   11-step FOC sanity-debug CLI
     ├── plots.py                       8 Plotly figures
     └── app.py                         Dash UI
 ```

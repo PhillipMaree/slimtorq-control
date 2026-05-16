@@ -38,9 +38,7 @@ class FluxEncoder:
 
     def _measure(self, theta_m_true: float) -> float:
         c = self.cfg
-        cyclic = (c.A1 * math.sin(c.k1 * theta_m_true + c.phi1)
-                  + c.A2 * math.sin(c.k2 * theta_m_true + c.phi2)
-                  + c.A3 * math.sin(c.k3 * theta_m_true + c.phi3))
+        cyclic = c.A1 * math.sin(c.k1 * theta_m_true + c.phi1) + c.A2 * math.sin(c.k2 * theta_m_true + c.phi2) + c.A3 * math.sin(c.k3 * theta_m_true + c.phi3)
         raw = theta_m_true + c.theta_offset + cyclic
         # Symmetric (mid-tread) quantization, then wrap to [0, 2*pi).
         q = self._dtheta * math.floor(raw / self._dtheta + 0.5)
@@ -79,9 +77,7 @@ class EncoderMeasurement:
         self.encoder = encoder
         self.p = p
 
-    def step(self, theta_m_true: float, omega_m_true: float,
-             i_abc: tuple[float, float, float], t: float
-             ) -> tuple[float, float, float, float, float, float]:
+    def step(self, theta_m_true: float, omega_m_true: float, i_abc: tuple[float, float, float], t: float) -> tuple[float, float, float, float, float, float]:
         """Returns (theta_m_meas, omega_m_meas, theta_e_meas, i_a_meas, i_b_meas, i_c_meas).
 
         i_abc currently passes through verbatim; this is the natural insertion
@@ -114,8 +110,7 @@ if __name__ == "__main__":
 
     lsb = 2 * math.pi / (1 << cfg.n_bits)
     avg = np.mean(measured_omegas[5:]) if len(measured_omegas) > 5 else float("nan")
-    print(f"encoder.py: LSB = 2*pi/2^{cfg.n_bits} = {lsb:.3e} rad "
-          f"({math.degrees(lsb)*3600:.3f} arcsec)")
+    print(f"encoder.py: LSB = 2*pi/2^{cfg.n_bits} = {lsb:.3e} rad ({math.degrees(lsb) * 3600:.3f} arcsec)")
     print(f"encoder.py: omega_true = {omega_true} rad/s, mean measured = {avg:.3f} rad/s")
     assert abs(avg - omega_true) < 0.5, f"omega tracking off: {avg} vs {omega_true}"
     print("encoder.py: linear-ramp omega tracking OK")

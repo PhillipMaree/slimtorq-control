@@ -14,8 +14,8 @@ SQRT3 = math.sqrt(3.0)
 def clarke(a: float, b: float, c: float) -> tuple[float, float]:
     """Amplitude-invariant 3 -> 2 Clarke transform.
 
-        alpha = (2/3)*(a - 0.5*b - 0.5*c)
-        beta  = (1/sqrt(3))*(b - c)
+    alpha = (2/3)*(a - 0.5*b - 0.5*c)
+    beta  = (1/sqrt(3))*(b - c)
     """
     alpha = (2.0 / 3.0) * (a - 0.5 * b - 0.5 * c)
     beta = (b - c) / SQRT3
@@ -25,9 +25,9 @@ def clarke(a: float, b: float, c: float) -> tuple[float, float]:
 def inv_clarke(alpha: float, beta: float) -> tuple[float, float, float]:
     """Inverse Clarke: alpha-beta -> a/b/c (balanced 3-phase, a + b + c = 0).
 
-        a =  alpha
-        b = -0.5*alpha + (sqrt(3)/2)*beta
-        c = -0.5*alpha - (sqrt(3)/2)*beta
+    a =  alpha
+    b = -0.5*alpha + (sqrt(3)/2)*beta
+    c = -0.5*alpha - (sqrt(3)/2)*beta
     """
     a = alpha
     b = -0.5 * alpha + (SQRT3 / 2.0) * beta
@@ -38,8 +38,8 @@ def inv_clarke(alpha: float, beta: float) -> tuple[float, float, float]:
 def park(alpha: float, beta: float, theta_e: float) -> tuple[float, float]:
     """Stationary alpha-beta -> rotating d-q using electrical angle theta_e.
 
-        d =  cos(theta_e)*alpha + sin(theta_e)*beta
-        q = -sin(theta_e)*alpha + cos(theta_e)*beta
+    d =  cos(theta_e)*alpha + sin(theta_e)*beta
+    q = -sin(theta_e)*alpha + cos(theta_e)*beta
     """
     cos_t = math.cos(theta_e)
     sin_t = math.sin(theta_e)
@@ -51,8 +51,8 @@ def park(alpha: float, beta: float, theta_e: float) -> tuple[float, float]:
 def inv_park(d: float, q: float, theta_e: float) -> tuple[float, float]:
     """Rotating d-q -> stationary alpha-beta.
 
-        alpha = cos(theta_e)*d - sin(theta_e)*q
-        beta  = sin(theta_e)*d + cos(theta_e)*q
+    alpha = cos(theta_e)*d - sin(theta_e)*q
+    beta  = sin(theta_e)*d + cos(theta_e)*q
     """
     cos_t = math.cos(theta_e)
     sin_t = math.sin(theta_e)
@@ -78,6 +78,7 @@ if __name__ == "__main__":
     #   - Clarke -> InvClarke is identity on balanced triples (a + b + c = 0).
     #   - Park   -> InvPark   is identity on any (d, q).
     import random
+
     random.seed(0)
     for _ in range(100):
         a = random.uniform(-10, 10)

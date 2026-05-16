@@ -14,11 +14,30 @@ Signal flow per tick (one `step()` call):
 The FOC outputs *continuous* abc voltage references. Conversion to duty cycles
 and switch states happens in the PWMModulator + Inverter blocks downstream.
 
+Decoupling and BEMF feedforward
+===============================
+
+The dq stator equations include cross-coupling and BEMF terms:
+
+    v_d = R_s · i_d + L_s · di_d/dt − ω_e · L_s · i_q
+    v_q = R_s · i_q + L_s · di_q/dt + ω_e · L_s · i_d + ω_e · ψ_m
+
+The FOC injects the two cross-coupling and BEMF terms as feedforward so the
+per-axis plant seen by each PI reduces to the first-order R/L circuit:
+
+    ff_d = −ω_e · L_s · i_q_meas
+    ff_q =  ω_e · L_s · i_d_meas + ω_e · ψ_m
+    v_d_raw = PI_d + ff_d
+    v_q_raw = PI_q + ff_q
+
+Vector saturation acts on the combined (PI + FF) command, which is the
+voltage actually requested from the inverter — the right physical bound.
+
 Tuning rationale
 ================
 
-Per-axis dq plant (cross-coupling and BEMF treated as slow disturbances
-absorbed by the integrator):
+Per-axis dq plant after decoupling/BEMF feedforward (each axis collapses to
+a pure R/L circuit):
 
     v = R_s · i + L_s · di/dt   =>   G(s) = i(s)/v(s) = 1 / (L_s · s + R_s)
 
@@ -89,6 +108,7 @@ class PIController:
     FOCController's vector saturation, where both axes must freeze together
     when the dq voltage vector exceeds V_max.
     """
+
     Kp: float
     Ki: float
     integ: float = 0.0
@@ -122,23 +142,26 @@ class FOCController:
         self.pi_q = PIController(Kp=self.Kp, Ki=self.Ki)
         # Sinusoidal-PWM linear range: |v_dq_vec| ≤ Vdc/2.
         self.V_max = cfg.Vdc / 2.0
+        # Plant params needed for dq decoupling and BEMF feedforward.
+        self.L_s = cfg.L_s
+        self.psi_m = cfg.psi_m
         # Last-step internals exposed for logging.
         self.i_d_meas: float = 0.0
         self.i_q_meas: float = 0.0
         self.v_d: float = 0.0
         self.v_q: float = 0.0
+        self.ff_d: float = 0.0
+        self.ff_q: float = 0.0
         self.sat_d: bool = False
         self.sat_q: bool = False
 
-    def step(self, i_a: float, i_b: float, i_c: float,
-             theta_e_meas: float,
-             i_d_ref: float, i_q_ref: float,
-             dt: float) -> tuple[float, float, float]:
+    def step(self, i_a: float, i_b: float, i_c: float, theta_e_meas: float, omega_e_meas: float, i_d_ref: float, i_q_ref: float, dt: float) -> tuple[float, float, float]:
         """One FOC tick.
 
         Inputs:
             i_a, i_b, i_c     measured phase currents [A]
             theta_e_meas      measured electrical angle [rad]
+            omega_e_meas      measured electrical speed [rad/s] (= p · ω_m_meas)
             i_d_ref, i_q_ref  current references [A]
             dt                control tick period [s]
 
@@ -147,9 +170,16 @@ class FOCController:
         # Forward: abc -> dq currents.
         i_d_meas, i_q_meas = abc_to_dq(i_a, i_b, i_c, theta_e_meas)
 
-        # PI on each axis (raw, unsaturated).
-        v_d_raw, err_d = self.pi_d.unsaturated(i_d_ref, i_d_meas)
-        v_q_raw, err_q = self.pi_q.unsaturated(i_q_ref, i_q_meas)
+        # PI on each axis (unsaturated).
+        v_d_pi, err_d = self.pi_d.unsaturated(i_d_ref, i_d_meas)
+        v_q_pi, err_q = self.pi_q.unsaturated(i_q_ref, i_q_meas)
+
+        # Decoupling + BEMF feedforward (matches the dq plant equations).
+        ff_d = -omega_e_meas * self.L_s * i_q_meas
+        ff_q = omega_e_meas * self.L_s * i_d_meas + omega_e_meas * self.psi_m
+
+        v_d_raw = v_d_pi + ff_d
+        v_q_raw = v_q_pi + ff_q
 
         # Vector saturation in the dq frame.
         mag = math.sqrt(v_d_raw * v_d_raw + v_q_raw * v_q_raw)
@@ -183,5 +213,6 @@ class FOCController:
         # Stash for logging.
         self.i_d_meas, self.i_q_meas = i_d_meas, i_q_meas
         self.v_d, self.v_q = v_d, v_q
+        self.ff_d, self.ff_q = ff_d, ff_q
         self.sat_d = self.sat_q = sat
         return v_a_ref, v_b_ref, v_c_ref

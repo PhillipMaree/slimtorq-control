@@ -41,8 +41,7 @@ TWO_PI = 2.0 * math.pi
 # Param hashing
 # ----------------------------------------------------------------------------
 def _canonical_params_json(params: dict) -> str:
-    norm = {k: (round(float(v), 12) if isinstance(v, float) else v)
-            for k, v in sorted(params.items())}
+    norm = {k: (round(float(v), 12) if isinstance(v, float) else v) for k, v in sorted(params.items())}
     return json.dumps(norm, separators=(",", ":"), sort_keys=True)
 
 
@@ -50,8 +49,7 @@ def _params_hash(json_str: str) -> str:
     return hashlib.blake2b(json_str.encode(), digest_size=8).hexdigest()
 
 
-def _gains_for_mode(variant: str, pi_mode: str, f_pwm: float
-                    ) -> tuple[float, float] | None:
+def _gains_for_mode(variant: str, pi_mode: str, f_pwm: float) -> tuple[float, float] | None:
     """Compute auto-suggested (Kp, Ki) for the variant + mode. None for manual."""
     if variant is None:
         return None
@@ -67,8 +65,7 @@ def _gains_for_mode(variant: str, pi_mode: str, f_pwm: float
 LABEL_W = "10rem"
 
 
-def _num(id_: str, value, step=None, mn=None, mx=None,
-         disabled=False, suffix="", label=None):
+def _num(id_: str, value, step=None, mn=None, mx=None, disabled=False, suffix="", label=None):
     """Numeric input row.
 
     `label` may be a plain string OR a list of HTML children (e.g. mixing
@@ -83,11 +80,13 @@ def _num(id_: str, value, step=None, mn=None, mx=None,
         parts = list(label)
     if suffix:
         parts = [*parts, f" [{suffix}]"]
-    return html.Div(className="alva-row", children=[
-        html.Label(parts, htmlFor=id_),
-        dcc.Input(id=id_, type="number", value=value, step=step, min=mn, max=mx,
-                  disabled=disabled),
-    ])
+    return html.Div(
+        className="alva-row",
+        children=[
+            html.Label(parts, htmlFor=id_),
+            dcc.Input(id=id_, type="number", value=value, step=step, min=mn, max=mx, disabled=disabled),
+        ],
+    )
 
 
 def _sub(stem: str, sub: str) -> list:
@@ -96,150 +95,160 @@ def _sub(stem: str, sub: str) -> list:
 
 
 def _section(title: str, children: list) -> html.Div:
-    return html.Div(className="alva-section",
-                    children=[html.H4(title), *children])
+    return html.Div(className="alva-section", children=[html.H4(title), *children])
 
 
 # Compute initial Kp/Ki for the default variant via modulus-optimum tuning at
 # the default f_pwm so the manual inputs show a sensible starting value the
 # first time the user picks Manual.
 DEFAULT_F_PWM = 20000.0
-kp0, ki0 = modulus_optimum_tuning(
-    CATALOG[DEFAULT_VARIANT].R_s, CATALOG[DEFAULT_VARIANT].L_s, DEFAULT_F_PWM)
+kp0, ki0 = modulus_optimum_tuning(CATALOG[DEFAULT_VARIANT].R_s, CATALOG[DEFAULT_VARIANT].L_s, DEFAULT_F_PWM)
 
 
-HEADER = html.Div(className="alva-header", children=[
-    html.Img(src="/assets/logo.png", alt="Alva Industries"),
-    html.Div(className="alva-header-text", children=[
-        html.Span("SlimTorq Simulator", className="alva-header-title"),
-        html.Span("FOC · PWM · Inverter", className="alva-header-sub"),
-    ]),
-])
-
-
-CONFIG_PANEL = html.Div(className="alva-panel", children=[
-    HEADER,
-    html.Div(className="alva-body", children=[
-
-        _section("Motor", [
-            html.Div(className="alva-row", children=[
-                html.Label("variant", htmlFor="variant"),
-                dcc.Dropdown(id="variant", value=DEFAULT_VARIANT,
-                             options=[{"label": k, "value": k} for k in sorted(CATALOG.keys())],
-                             clearable=False,
-                             style={"width": "18rem"}),
-            ]),
-        ]),
-
-        _section("Power stage", [
-            # Vdc is derived from the selected variant's catalog rated_voltage
-            # at runtime (motor.rated_voltage); not a UI input.
-            _num("f_pwm",  20000.0, step=1000.0, mn=1000.0, mx=100000.0,
-                 suffix="Hz", label=_sub("f", "pwm")),
-            _num("t_dead", 1.5e-6,  step=1e-7,   mn=0.0,    mx=5e-6,
-                 suffix="s",  label=_sub("t", "dead")),
-        ]),
-
-        _section("Encoder", [
-            _num("n_bits",       22,  step=1, mn=10, mx=26,
-                 label=_sub("N", "bits")),
-            _num("theta_offset", 0.0, step=1e-3, mn=-math.pi, mx=math.pi,
-                 suffix="rad", label=_sub("θ", "offset")),
-            _num("A1",   2.4e-5, step=1e-6, mn=0.0, mx=1e-3, suffix="rad",
-                 label=_sub("A", "1")),
-            _num("k1",   1,      step=1,    mn=1,   mx=100,
-                 label=_sub("k", "1")),
-            _num("phi1", 0.0,    step=1e-3, mn=0.0, mx=TWO_PI, suffix="rad",
-                 label=_sub("φ", "1")),
-            _num("A2",   5.0e-6, step=1e-6, mn=0.0, mx=1e-3, suffix="rad",
-                 label=_sub("A", "2")),
-            _num("k2",   2,      step=1,    mn=1,   mx=100,
-                 label=_sub("k", "2")),
-            _num("phi2", 0.0,    step=1e-3, mn=0.0, mx=TWO_PI, suffix="rad",
-                 label=_sub("φ", "2")),
-            _num("A3",   1.0e-6, step=1e-6, mn=0.0, mx=1e-3, suffix="rad",
-                 label=_sub("A", "3")),
-            _num("k3",   4,      step=1,    mn=1,   mx=100,
-                 label=_sub("k", "3")),
-            _num("phi3", 0.0,    step=1e-3, mn=0.0, mx=TWO_PI, suffix="rad",
-                 label=_sub("φ", "3")),
-            _num("ts_enc", 1e-4, step=1e-5, mn=1e-6, mx=1e-2, suffix="s",
-                 label=_sub("T", "s,enc")),
-        ]),
-
-        _section("Trajectory (load-torque step)", [
-            _num("t_end",       0.05,  step=1e-3, mn=1e-3, mx=1.0,
-                 suffix="s", label=_sub("t", "end")),
-            _num("t_step",      0.005, step=1e-3, mn=0.0,  mx=1.0,
-                 suffix="s", label=_sub("t", "step")),
-            # The amplitude of the load-torque step is t_step_frac · T_e^peak,
-            # i.e. this input *is* T_L^ref / T_e^peak.
-            _num("t_step_frac", 2/3,   step=0.05, mn=0.0,  mx=1.5,
-                 label=["T", html.Sub("L"), html.Sup("ref"),
-                        " / T", html.Sub("e"), html.Sup("peak")]),
-            _num("Tf",          None,  step=1e-3, mn=1e-3, mx=5.0,
-                 suffix="s (None=auto)", label=_sub("T", "f")),
-        ]),
-
-        _section("Timing", [
-            _num("dt_sim", None, step=1e-7, mn=1e-7, mx=1e-4,
-                 suffix="s (None=T_pwm/20)",
-                 label=["Δt", html.Sub("sim")]),
-        ]),
-
-        _section("Current loop", [
-            html.Div(className="alva-row", children=[
-                html.Label("PI tuning"),
-                dcc.RadioItems(id="pi_mode",
-                               className="alva-radio",
-                               options=[{"label": " Modulus Optimum (f_pwm)",
-                                         "value": "modulus_optimum"},
-                                        {"label": " Manual (Kp, Ki)", "value": "manual"}],
-                               value="modulus_optimum",
-                               labelStyle={"display": "block"}),
-            ]),
-            _num("Kp", round(kp0, 6), step=1e-3, mn=0.0,
-                 suffix="V/A",     disabled=True, label=_sub("K", "p")),
-            _num("Ki", round(ki0, 6), step=1e-3, mn=0.0,
-                 suffix="V/(A·s)", disabled=True, label=_sub("K", "i")),
-        ]),
-
-        html.Button("Simulate", id="simulate", n_clicks=0,
-                    className="alva-btn-simulate"),
-        html.Div(id="status", className="alva-status"),
-    ]),
-])
-
-
-PLOT_PANEL = dcc.Loading(
-    html.Div([
-        dcc.Graph(id="fig_tracking", mathjax=True),
-        dcc.Graph(id="fig_pi",       mathjax=True),
-        dcc.Graph(id="fig_fft",      mathjax=True),
-        dcc.Graph(id="fig_iabc",     mathjax=True),
-        dcc.Graph(id="fig_vabc",     mathjax=True),
-        dcc.Graph(id="fig_duties",   mathjax=True),
-        dcc.Graph(id="fig_enc",      mathjax=True),
-        dcc.Graph(id="fig_speed",    mathjax=True),
-    ], className="alva-plot-panel"),
-    type="default", color="#F76E5C",
-    # Without this, dcc.Loading's wrapper div collapses to content width and
-    # the .alva-plot-panel `flex: 1` inside it has nothing to expand into.
-    parent_style={"flex": "1 1 auto", "minWidth": "0", "display": "flex",
-                  "flexDirection": "column"},
+HEADER = html.Div(
+    className="alva-header",
+    children=[
+        html.Img(src="/assets/logo.png", alt="Alva Industries"),
+        html.Div(
+            className="alva-header-text",
+            children=[
+                html.Span("SlimTorq Simulator", className="alva-header-title"),
+                html.Span("FOC · PWM · Inverter", className="alva-header-sub"),
+            ],
+        ),
+    ],
 )
 
 
-app = Dash(__name__,
-           title="SlimTorq Simulator — Alva Industries",
-           assets_folder=ASSETS_DIR,
-           # Load MathJax explicitly so $…$ in Plotly titles / axes / trace
-           # names renders reliably (Plotly 6 + Dash 4 auto-loader is racy).
-           external_scripts=[
-               "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js",
-           ])
-app.layout = html.Div([CONFIG_PANEL, PLOT_PANEL],
-                      style={"display": "flex"})
+CONFIG_PANEL = html.Div(
+    className="alva-panel",
+    children=[
+        HEADER,
+        html.Div(
+            className="alva-body",
+            children=[
+                _section(
+                    "Motor",
+                    [
+                        html.Div(
+                            className="alva-row",
+                            children=[
+                                html.Label("variant", htmlFor="variant"),
+                                dcc.Dropdown(
+                                    id="variant",
+                                    value=DEFAULT_VARIANT,
+                                    options=[{"label": k, "value": k} for k in sorted(CATALOG.keys())],
+                                    clearable=False,
+                                    style={"width": "18rem"},
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                _section(
+                    "Power stage",
+                    [
+                        # Vdc is derived from the selected variant's catalog rated_voltage
+                        # at runtime (motor.rated_voltage); not a UI input.
+                        _num("f_pwm", 20000.0, step=1000.0, mn=1000.0, mx=100000.0, suffix="Hz", label=_sub("f", "pwm")),
+                        _num("t_dead", 1.5e-6, step=1e-7, mn=0.0, mx=5e-6, suffix="s", label=_sub("t", "dead")),
+                    ],
+                ),
+                _section(
+                    "Encoder",
+                    [
+                        _num("n_bits", 22, step=1, mn=10, mx=26, label=_sub("N", "bits")),
+                        _num("theta_offset", 0.0, step=1e-3, mn=-math.pi, mx=math.pi, suffix="rad", label=_sub("θ", "offset")),
+                        _num("A1", 2.4e-5, step=1e-6, mn=0.0, mx=1e-3, suffix="rad", label=_sub("A", "1")),
+                        _num("k1", 1, step=1, mn=1, mx=100, label=_sub("k", "1")),
+                        _num("phi1", 0.0, step=1e-3, mn=0.0, mx=TWO_PI, suffix="rad", label=_sub("φ", "1")),
+                        _num("A2", 5.0e-6, step=1e-6, mn=0.0, mx=1e-3, suffix="rad", label=_sub("A", "2")),
+                        _num("k2", 2, step=1, mn=1, mx=100, label=_sub("k", "2")),
+                        _num("phi2", 0.0, step=1e-3, mn=0.0, mx=TWO_PI, suffix="rad", label=_sub("φ", "2")),
+                        _num("A3", 1.0e-6, step=1e-6, mn=0.0, mx=1e-3, suffix="rad", label=_sub("A", "3")),
+                        _num("k3", 4, step=1, mn=1, mx=100, label=_sub("k", "3")),
+                        _num("phi3", 0.0, step=1e-3, mn=0.0, mx=TWO_PI, suffix="rad", label=_sub("φ", "3")),
+                        _num("ts_enc", 1e-4, step=1e-5, mn=1e-6, mx=1e-2, suffix="s", label=_sub("T", "s,enc")),
+                    ],
+                ),
+                _section(
+                    "Trajectory (load-torque step)",
+                    [
+                        _num("t_end", 0.05, step=1e-3, mn=1e-3, mx=1.0, suffix="s", label=_sub("t", "end")),
+                        _num("t_step", 0.005, step=1e-3, mn=0.0, mx=1.0, suffix="s", label=_sub("t", "step")),
+                        # The amplitude of the load-torque step is t_step_frac · T_e^peak,
+                        # i.e. this input *is* T_L^ref / T_e^peak.
+                        _num("t_step_frac", 2 / 3, step=0.05, mn=0.0, mx=1.5, label=["T", html.Sub("L"), html.Sup("ref"), " / T", html.Sub("e"), html.Sup("peak")]),
+                        _num("Tf", None, step=1e-3, mn=1e-3, mx=5.0, suffix="s (None=auto)", label=_sub("T", "f")),
+                    ],
+                ),
+                _section(
+                    "Timing",
+                    [
+                        _num("dt_sim", None, step=1e-7, mn=1e-7, mx=1e-4, suffix="s (None=T_pwm/20)", label=["Δt", html.Sub("sim")]),
+                    ],
+                ),
+                _section(
+                    "Current loop",
+                    [
+                        html.Div(
+                            className="alva-row",
+                            children=[
+                                html.Label("PI tuning"),
+                                dcc.RadioItems(
+                                    id="pi_mode",
+                                    className="alva-radio",
+                                    options=[{"label": " Modulus Optimum (f_pwm)", "value": "modulus_optimum"}, {"label": " Manual (Kp, Ki)", "value": "manual"}],
+                                    value="modulus_optimum",
+                                    labelStyle={"display": "block"},
+                                ),
+                            ],
+                        ),
+                        _num("Kp", round(kp0, 6), step=1e-3, mn=0.0, suffix="V/A", disabled=True, label=_sub("K", "p")),
+                        _num("Ki", round(ki0, 6), step=1e-3, mn=0.0, suffix="V/(A·s)", disabled=True, label=_sub("K", "i")),
+                    ],
+                ),
+                html.Button("Simulate", id="simulate", n_clicks=0, className="alva-btn-simulate"),
+                html.Div(id="status", className="alva-status"),
+            ],
+        ),
+    ],
+)
+
+
+PLOT_PANEL = dcc.Loading(
+    html.Div(
+        [
+            dcc.Graph(id="fig_tracking", mathjax=True),
+            dcc.Graph(id="fig_pi", mathjax=True),
+            dcc.Graph(id="fig_fft", mathjax=True),
+            dcc.Graph(id="fig_iabc", mathjax=True),
+            dcc.Graph(id="fig_vabc", mathjax=True),
+            dcc.Graph(id="fig_duties", mathjax=True),
+            dcc.Graph(id="fig_enc", mathjax=True),
+            dcc.Graph(id="fig_speed", mathjax=True),
+        ],
+        className="alva-plot-panel",
+    ),
+    type="default",
+    color="#F76E5C",
+    # Without this, dcc.Loading's wrapper div collapses to content width and
+    # the .alva-plot-panel `flex: 1` inside it has nothing to expand into.
+    parent_style={"flex": "1 1 auto", "minWidth": "0", "display": "flex", "flexDirection": "column"},
+)
+
+
+app = Dash(
+    __name__,
+    title="SlimTorq Simulator — Alva Industries",
+    assets_folder=ASSETS_DIR,
+    # Load MathJax explicitly so $…$ in Plotly titles / axes / trace
+    # names renders reliably (Plotly 6 + Dash 4 auto-loader is racy).
+    external_scripts=[
+        "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js",
+    ],
+)
+app.layout = html.Div([CONFIG_PANEL, PLOT_PANEL], style={"display": "flex"})
 
 
 # ----------------------------------------------------------------------------
@@ -311,12 +320,19 @@ def _render_all(df: pl.DataFrame, meta: dict[str, str]):
     *PLOT_OUTPUTS,
     Input("simulate", "n_clicks"),
     State("variant", "value"),
-    State("f_pwm", "value"), State("t_dead", "value"),
+    State("f_pwm", "value"),
+    State("t_dead", "value"),
     State("n_bits", "value"),
     State("theta_offset", "value"),
-    State("A1", "value"), State("k1", "value"), State("phi1", "value"),
-    State("A2", "value"), State("k2", "value"), State("phi2", "value"),
-    State("A3", "value"), State("k3", "value"), State("phi3", "value"),
+    State("A1", "value"),
+    State("k1", "value"),
+    State("phi1", "value"),
+    State("A2", "value"),
+    State("k2", "value"),
+    State("phi2", "value"),
+    State("A3", "value"),
+    State("k3", "value"),
+    State("phi3", "value"),
     State("ts_enc", "value"),
     State("dt_sim", "value"),
     State("t_end", "value"),
@@ -328,11 +344,7 @@ def _render_all(df: pl.DataFrame, meta: dict[str, str]):
     State("Ki", "value"),
     prevent_initial_call=True,
 )
-def simulate(n_clicks, variant, f_pwm, t_dead,
-             n_bits, theta_offset,
-             A1, k1, phi1, A2, k2, phi2, A3, k3, phi3,
-             ts_enc, dt_sim, t_end, t_step, t_step_frac, Tf,
-             pi_mode, Kp, Ki):
+def simulate(n_clicks, variant, f_pwm, t_dead, n_bits, theta_offset, A1, k1, phi1, A2, k2, phi2, A3, k3, phi3, ts_enc, dt_sim, t_end, t_step, t_step_frac, Tf, pi_mode, Kp, Ki):
     if variant is None:
         return *([no_update] * 8), "no variant selected"
     if t_step is None or t_end is None or t_step >= t_end:
@@ -343,22 +355,28 @@ def simulate(n_clicks, variant, f_pwm, t_dead,
 
     params = {
         "variant_name": variant,
-        "f_pwm":        float(f_pwm),
-        "t_dead":       float(t_dead),
-        "n_bits":       int(n_bits),
+        "f_pwm": float(f_pwm),
+        "t_dead": float(t_dead),
+        "n_bits": int(n_bits),
         "theta_offset": float(theta_offset),
-        "A1": float(A1), "k1": int(k1), "phi1": float(phi1),
-        "A2": float(A2), "k2": int(k2), "phi2": float(phi2),
-        "A3": float(A3), "k3": int(k3), "phi3": float(phi3),
-        "ts_enc":       float(ts_enc),
-        "dt_sim":       None if dt_sim is None else float(dt_sim),
-        "t_end":        float(t_end),
-        "t_step":       float(t_step),
-        "t_step_frac":  float(t_step_frac),
-        "Tf":           None if Tf is None else float(Tf),
-        "pi_mode":      pi_mode,
-        "Kp":           float(Kp) if Kp is not None else None,
-        "Ki":           float(Ki) if Ki is not None else None,
+        "A1": float(A1),
+        "k1": int(k1),
+        "phi1": float(phi1),
+        "A2": float(A2),
+        "k2": int(k2),
+        "phi2": float(phi2),
+        "A3": float(A3),
+        "k3": int(k3),
+        "phi3": float(phi3),
+        "ts_enc": float(ts_enc),
+        "dt_sim": None if dt_sim is None else float(dt_sim),
+        "t_end": float(t_end),
+        "t_step": float(t_step),
+        "t_step_frac": float(t_step_frac),
+        "Tf": None if Tf is None else float(Tf),
+        "pi_mode": pi_mode,
+        "Kp": float(Kp) if Kp is not None else None,
+        "Ki": float(Ki) if Ki is not None else None,
     }
     params_json = _canonical_params_json(params)
     h = _params_hash(params_json)
@@ -374,21 +392,27 @@ def simulate(n_clicks, variant, f_pwm, t_dead,
 
     if not cache_hit:
         encoder_cfg = EncoderConfig(
-            n_bits=int(n_bits), theta_offset=float(theta_offset),
-            A1=float(A1), k1=int(k1), phi1=float(phi1),
-            A2=float(A2), k2=int(k2), phi2=float(phi2),
-            A3=float(A3), k3=int(k3), phi3=float(phi3),
+            n_bits=int(n_bits),
+            theta_offset=float(theta_offset),
+            A1=float(A1),
+            k1=int(k1),
+            phi1=float(phi1),
+            A2=float(A2),
+            k2=int(k2),
+            phi2=float(phi2),
+            A3=float(A3),
+            k3=int(k3),
+            phi3=float(phi3),
             Ts_enc=float(ts_enc),
         )
-        TL = default_TL_ref(motor, t_end=float(t_end), t_step=float(t_step),
-                            frac=float(t_step_frac))
+        TL = default_TL_ref(motor, t_end=float(t_end), t_step=float(t_step), frac=float(t_step_frac))
 
         # Pick Kp/Ki per pi_mode. For auto/MO let main.run derive them from
         # bw_hz / f_pwm via FocConfig's None-default; for manual pass through.
-        use_manual = (pi_mode == "manual"
-                      and Kp is not None and Ki is not None)
+        use_manual = pi_mode == "manual" and Kp is not None and Ki is not None
         try:
-            run(motor=motor,
+            run(
+                motor=motor,
                 encoder_cfg=encoder_cfg,
                 TL_ref=TL,
                 out_path=out_path,
@@ -400,10 +424,9 @@ def simulate(n_clicks, variant, f_pwm, t_dead,
                 t_dead=float(t_dead),
                 dt_sim=None if dt_sim is None else float(dt_sim),
                 Tf=None if Tf is None else float(Tf),
-                Kp=float(Kp) if use_manual else
-                   modulus_optimum_tuning(motor.R_s, motor.L_s, float(f_pwm))[0],
-                Ki=float(Ki) if use_manual else
-                   modulus_optimum_tuning(motor.R_s, motor.L_s, float(f_pwm))[1])
+                Kp=float(Kp) if use_manual else modulus_optimum_tuning(motor.R_s, motor.L_s, float(f_pwm))[0],
+                Ki=float(Ki) if use_manual else modulus_optimum_tuning(motor.R_s, motor.L_s, float(f_pwm))[1],
+            )
         except Exception as e:
             return *([no_update] * 8), f"error: {e}"
 
@@ -411,11 +434,13 @@ def simulate(n_clicks, variant, f_pwm, t_dead,
     meta = read_metadata(out_path)
     figs = _render_all(df, meta)
     state = "cache hit" if cache_hit else "ran sim"
-    status = (f"{state}: {out_path.name}   "
-              f"hash={h}   rows={df.height}   "
-              f"Kp={meta.get('slimtorq.foc_kp', '?')}  "
-              f"Ki={meta.get('slimtorq.foc_ki', '?')}  "
-              f"[{meta.get('slimtorq.pi_mode', '?')}]")
+    status = (
+        f"{state}: {out_path.name}   "
+        f"hash={h}   rows={df.height}   "
+        f"Kp={meta.get('slimtorq.foc_kp', '?')}  "
+        f"Ki={meta.get('slimtorq.foc_ki', '?')}  "
+        f"[{meta.get('slimtorq.pi_mode', '?')}]"
+    )
     return (*figs, status)
 
 

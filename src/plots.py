@@ -27,32 +27,23 @@ def _title(meta: dict[str, str], suffix: str = "") -> str:
 # Shared layout to give every figure a horizontal legend above the plot and
 # minimal side margins, so the x-axis runs almost to the panel edge.
 _FIG_MARGIN = dict(l=55, r=20, t=80, b=50)
-_FIG_LEGEND = dict(orientation="h",
-                   yanchor="bottom", y=1.02,
-                   xanchor="right",  x=1.0)
+_FIG_LEGEND = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1.0)
 
 
 def figure_tracking(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
     r"""T_L_ref vs T_e, i_q^* vs i_q, i_d^* vs i_d on a 3-row shared-x subplot."""
     t = _t_ms(df)
     fig = make_subplots(
-        rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.05,
-        subplot_titles=(r"$\text{Torque } [\mathrm{N \cdot m}]$",
-                        r"$i_q \;[\mathrm{A}]$",
-                        r"$i_d \;[\mathrm{A}]$"))
-    fig.add_trace(go.Scatter(x=t, y=df["TL_ref"], name=r"$T_L^{\,ref}$",
-                             line=dict(dash="dash")), row=1, col=1)
+        rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.05, subplot_titles=(r"$\text{Torque } [\mathrm{N \cdot m}]$", r"$i_q \;[\mathrm{A}]$", r"$i_d \;[\mathrm{A}]$")
+    )
+    fig.add_trace(go.Scatter(x=t, y=df["TL_ref"], name=r"$T_L^{\,ref}$", line=dict(dash="dash")), row=1, col=1)
     fig.add_trace(go.Scatter(x=t, y=df["T_e"], name=r"$T_e$"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=t, y=df["i_q_ref"], name=r"$i_q^{\,*}$",
-                             line=dict(dash="dash")), row=2, col=1)
+    fig.add_trace(go.Scatter(x=t, y=df["i_q_ref"], name=r"$i_q^{\,*}$", line=dict(dash="dash")), row=2, col=1)
     fig.add_trace(go.Scatter(x=t, y=df["i_q_meas"], name=r"$i_q$"), row=2, col=1)
-    fig.add_trace(go.Scatter(x=t, y=df["i_d_ref"], name=r"$i_d^{\,*}$",
-                             line=dict(dash="dash")), row=3, col=1)
+    fig.add_trace(go.Scatter(x=t, y=df["i_d_ref"], name=r"$i_d^{\,*}$", line=dict(dash="dash")), row=3, col=1)
     fig.add_trace(go.Scatter(x=t, y=df["i_d_meas"], name=r"$i_d$"), row=3, col=1)
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$", row=3, col=1)
-    fig.update_layout(title=_title(meta, "Tracking"), height=700,
-                      hovermode="x unified",
-                      margin=_FIG_MARGIN, legend=_FIG_LEGEND)
+    fig.update_layout(title=_title(meta, "Tracking"), height=700, hovermode="x unified", margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig
 
 
@@ -72,32 +63,34 @@ def figure_pi_performance(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
     v_mag = np.sqrt(v_d * v_d + v_q * v_q)
 
     fig = make_subplots(
-        rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.06,
-        subplot_titles=(r"$\text{PI error } [\mathrm{A}]$",
-                        r"$v_d^{\,ref}, \; v_q^{\,ref} \;[\mathrm{V}]$",
-                        r"$|v_{dq}| \;\text{vs}\; V_{max}=V_{dc}/2 \;[\mathrm{V}]$"))
+        rows=3,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.06,
+        subplot_titles=(r"$\text{PI error } [\mathrm{A}]$", r"$v_d^{\,ref}, \; v_q^{\,ref} \;[\mathrm{V}]$", r"$|v_{dq}| \;\text{vs}\; V_{max}=V_{dc}/2 \;[\mathrm{V}]$"),
+    )
     fig.add_trace(go.Scatter(x=t, y=e_d, name=r"$e_d$"), row=1, col=1)
     fig.add_trace(go.Scatter(x=t, y=e_q, name=r"$e_q$"), row=1, col=1)
     fig.add_hline(y=0.0, line=dict(width=0.5, color="black"), row=1, col=1)
 
     fig.add_trace(go.Scatter(x=t, y=v_d, name=r"$v_d^{\,ref}$"), row=2, col=1)
     fig.add_trace(go.Scatter(x=t, y=v_q, name=r"$v_q^{\,ref}$"), row=2, col=1)
-    fig.add_hline(y=V_max, line=dict(width=0.5, color="red", dash="dot"),
-                  annotation_text=fr"$+V_{{max}}={V_max:g}$", row=2, col=1)
-    fig.add_hline(y=-V_max, line=dict(width=0.5, color="red", dash="dot"),
-                  row=2, col=1)
+    fig.add_hline(y=V_max, line=dict(width=0.5, color="red", dash="dot"), annotation_text=rf"$+V_{{max}}={V_max:g}$", row=2, col=1)
+    fig.add_hline(y=-V_max, line=dict(width=0.5, color="red", dash="dot"), row=2, col=1)
 
     fig.add_trace(go.Scatter(x=t, y=v_mag, name=r"$|v_{dq}|$"), row=3, col=1)
-    fig.add_hline(y=V_max, line=dict(width=0.5, color="red", dash="dot"),
-                  annotation_text=fr"$V_{{max}}={V_max:g}$", row=3, col=1)
+    fig.add_hline(y=V_max, line=dict(width=0.5, color="red", dash="dot"), annotation_text=rf"$V_{{max}}={V_max:g}$", row=3, col=1)
 
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$", row=3, col=1)
     fig.update_layout(
-        title=fr"{_title(meta, 'PI performance')}  —  "
-              fr"$K_p={kp}\,\mathrm{{V/A}},\; K_i={ki}\,\mathrm{{V/(A\cdot s)}}$  "
-              f"[{pi_mode}]",
-        height=720, hovermode="x unified",
-        margin=_FIG_MARGIN, legend=_FIG_LEGEND)
+        title=rf"{_title(meta, 'PI performance')}  —  "
+        rf"$K_p={kp}\,\mathrm{{V/A}},\; K_i={ki}\,\mathrm{{V/(A\cdot s)}}$  "
+        f"[{pi_mode}]",
+        height=720,
+        hovermode="x unified",
+        margin=_FIG_MARGIN,
+        legend=_FIG_LEGEND,
+    )
     return fig
 
 
@@ -120,14 +113,16 @@ def figure_fft_omega(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=freqs, y=mag, name=r"$|\mathrm{FFT}(\omega_m^{\,meas})|$"))
-    fig.update_yaxes(type="log",
-                     title_text=r"$|\mathrm{FFT}(\omega_m^{\,meas})| \;[\mathrm{rad/s,\,normalised}]$")
+    fig.update_yaxes(type="log", title_text=r"$|\mathrm{FFT}(\omega_m^{\,meas})| \;[\mathrm{rad/s,\,normalised}]$")
     fig.update_xaxes(title_text=r"$f \;[\mathrm{Hz}]$")
     fig.update_layout(
-        title=fr"{_title(meta, r'$\omega_m^{meas}$ spectrum')}  "
-              f"(steady-state window: last {100*(n-start)//n}% of samples)",
-        height=450, hovermode="x",
-        margin=_FIG_MARGIN, legend=_FIG_LEGEND)
+        title=rf"{_title(meta, r'$\omega_m^{meas}$ spectrum')}  "
+        f"(steady-state window: last {100 * (n - start) // n}% of samples)",
+        height=450,
+        hovermode="x",
+        margin=_FIG_MARGIN,
+        legend=_FIG_LEGEND,
+    )
     return fig
 
 
@@ -140,9 +135,7 @@ def figure_phase_currents(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
         fig.add_trace(go.Scatter(x=t, y=df[name], name=latex_name))
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$")
     fig.update_yaxes(title_text=r"$\text{phase current } [\mathrm{A}]$")
-    fig.update_layout(title=_title(meta, "Phase currents (abc)"),
-                      height=450, hovermode="x unified",
-                      margin=_FIG_MARGIN, legend=_FIG_LEGEND)
+    fig.update_layout(title=_title(meta, "Phase currents (abc)"), height=450, hovermode="x unified", margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig
 
 
@@ -154,23 +147,15 @@ def figure_phase_voltages(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
     fig = go.Figure()
     colors = {"a": "#1f77b4", "b": "#ff7f0e", "c": "#2ca02c"}
     for ph in ("a", "b", "c"):
-        fig.add_trace(go.Scatter(x=t, y=df[f"v_{ph}"],
-                                 name=rf"$v_{ph} \,(\text{{post-inv}})$",
-                                 line=dict(color=colors[ph], width=1.0),
-                                 opacity=0.45,
-                                 legendgroup=ph, hovertemplate=None))
-        fig.add_trace(go.Scatter(x=t, y=df[f"v_{ph}_ref"],
-                                 name=rf"$v_{ph}^{{\,ref}}$",
-                                 line=dict(color=colors[ph], width=2.0),
-                                 legendgroup=ph))
-    fig.add_hline(y=half, line=dict(width=0.5, color="red", dash="dot"),
-                  annotation_text=fr"$+V_{{dc}}/2={half:g}$")
+        fig.add_trace(
+            go.Scatter(x=t, y=df[f"v_{ph}"], name=rf"$v_{ph} \,(\text{{post-inv}})$", line=dict(color=colors[ph], width=1.0), opacity=0.45, legendgroup=ph, hovertemplate=None)
+        )
+        fig.add_trace(go.Scatter(x=t, y=df[f"v_{ph}_ref"], name=rf"$v_{ph}^{{\,ref}}$", line=dict(color=colors[ph], width=2.0), legendgroup=ph))
+    fig.add_hline(y=half, line=dict(width=0.5, color="red", dash="dot"), annotation_text=rf"$+V_{{dc}}/2={half:g}$")
     fig.add_hline(y=-half, line=dict(width=0.5, color="red", dash="dot"))
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$")
     fig.update_yaxes(title_text=r"$\text{phase voltage } [\mathrm{V}]$")
-    fig.update_layout(title=_title(meta, "Phase voltages: FOC refs vs post-inverter"),
-                      height=500, hovermode="x unified",
-                      margin=_FIG_MARGIN, legend=_FIG_LEGEND)
+    fig.update_layout(title=_title(meta, "Phase voltages: FOC refs vs post-inverter"), height=500, hovermode="x unified", margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig
 
 
@@ -180,16 +165,11 @@ def figure_duties(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
     colors = {"a": "#1f77b4", "b": "#ff7f0e", "c": "#2ca02c"}
     fig = go.Figure()
     for ph in ("a", "b", "c"):
-        fig.add_trace(go.Scatter(x=t, y=df[f"d_{ph}"],
-                                 name=rf"$d_{ph}$",
-                                 line=dict(color=colors[ph])))
-    fig.add_hline(y=0.5, line=dict(width=0.5, color="black", dash="dot"),
-                  annotation_text=r"$0.5$")
+        fig.add_trace(go.Scatter(x=t, y=df[f"d_{ph}"], name=rf"$d_{ph}$", line=dict(color=colors[ph])))
+    fig.add_hline(y=0.5, line=dict(width=0.5, color="black", dash="dot"), annotation_text=r"$0.5$")
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$")
     fig.update_yaxes(title_text=r"$\text{duty}$", range=[-0.05, 1.05])
-    fig.update_layout(title=_title(meta, "PWM duty cycles"),
-                      height=400, hovermode="x unified",
-                      margin=_FIG_MARGIN, legend=_FIG_LEGEND)
+    fig.update_layout(title=_title(meta, "PWM duty cycles"), height=400, hovermode="x unified", margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig
 
 
@@ -208,14 +188,11 @@ def figure_encoder_error(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
     err_wrapped = ((diff + np.pi) % (2.0 * np.pi)) - np.pi
     err_mrad = err_wrapped * 1e3
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=t, y=err_mrad,
-                             name=r"$\theta_m^{\,true} - \theta_m^{\,meas}$"))
+    fig.add_trace(go.Scatter(x=t, y=err_mrad, name=r"$\theta_m^{\,true} - \theta_m^{\,meas}$"))
     fig.add_hline(y=0.0, line=dict(width=0.5, color="black"))
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$")
     fig.update_yaxes(title_text=r"$\mathrm{wrap}(\theta_m^{\,true} - \theta_m^{\,meas}) \;[\mathrm{mrad}]$")
-    fig.update_layout(title=_title(meta, "Encoder error (shortest-distance)"),
-                      height=450, hovermode="x unified",
-                      margin=_FIG_MARGIN, legend=_FIG_LEGEND)
+    fig.update_layout(title=_title(meta, "Encoder error (shortest-distance)"), height=450, hovermode="x unified", margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig
 
 
@@ -228,31 +205,18 @@ def figure_speed_and_saturation(df: pl.DataFrame, meta: dict[str, str]) -> go.Fi
     sat_q = df["sat_q"].to_numpy()
 
     fig = make_subplots(
-        rows=2, cols=1, shared_xaxes=True,
-        row_heights=[0.82, 0.18], vertical_spacing=0.04,
-        subplot_titles=(r"$\text{Speed } [\mathrm{rad/s}]$",
-                        r"$\text{PI saturation flags}$"))
-    fig.add_trace(go.Scatter(x=t, y=omega_true, name=r"$\omega_m^{\,true}$"),
-                  row=1, col=1)
-    fig.add_trace(go.Scatter(x=t, y=omega_meas, name=r"$\omega_m^{\,meas}$",
-                             line=dict(dash="dot")), row=1, col=1)
+        rows=2, cols=1, shared_xaxes=True, row_heights=[0.82, 0.18], vertical_spacing=0.04, subplot_titles=(r"$\text{Speed } [\mathrm{rad/s}]$", r"$\text{PI saturation flags}$")
+    )
+    fig.add_trace(go.Scatter(x=t, y=omega_true, name=r"$\omega_m^{\,true}$"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=t, y=omega_meas, name=r"$\omega_m^{\,meas}$", line=dict(dash="dot")), row=1, col=1)
 
     t_d = t[sat_d]
     t_q = t[sat_q]
     if len(t_d):
-        fig.add_trace(go.Scatter(x=t_d, y=np.zeros_like(t_d),
-                                 mode="markers",
-                                 marker=dict(symbol="line-ns", size=10, color="orange"),
-                                 name=r"$\mathrm{sat}_d$"), row=2, col=1)
+        fig.add_trace(go.Scatter(x=t_d, y=np.zeros_like(t_d), mode="markers", marker=dict(symbol="line-ns", size=10, color="orange"), name=r"$\mathrm{sat}_d$"), row=2, col=1)
     if len(t_q):
-        fig.add_trace(go.Scatter(x=t_q, y=np.ones_like(t_q),
-                                 mode="markers",
-                                 marker=dict(symbol="line-ns", size=10, color="red"),
-                                 name=r"$\mathrm{sat}_q$"), row=2, col=1)
-    fig.update_yaxes(range=[-0.5, 1.5], tickvals=[0, 1],
-                     ticktext=[r"$\mathrm{sat}_d$", r"$\mathrm{sat}_q$"], row=2, col=1)
+        fig.add_trace(go.Scatter(x=t_q, y=np.ones_like(t_q), mode="markers", marker=dict(symbol="line-ns", size=10, color="red"), name=r"$\mathrm{sat}_q$"), row=2, col=1)
+    fig.update_yaxes(range=[-0.5, 1.5], tickvals=[0, 1], ticktext=[r"$\mathrm{sat}_d$", r"$\mathrm{sat}_q$"], row=2, col=1)
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$", row=2, col=1)
-    fig.update_layout(title=_title(meta, "Speed tracking + PI saturation"),
-                      height=550, hovermode="x unified",
-                      margin=_FIG_MARGIN, legend=_FIG_LEGEND)
+    fig.update_layout(title=_title(meta, "Speed tracking + PI saturation"), height=550, hovermode="x unified", margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig

@@ -72,6 +72,7 @@ class CommonSpec(BaseModel):
 
 class _SpecWithTolerance(BaseModel):
     """A {unit, value, tolerance?} cell. Tolerance is informational; we ignore it."""
+
     model_config = ConfigDict(frozen=True, extra="allow")
     unit: str
     value: float | int
@@ -150,24 +151,26 @@ class PmsmModel(BaseModel):
     The runtime sees only this shape. Built from CatalogFile by
     motor_catalog._build_pmsm_model().
     """
+
     model_config = ConfigDict(frozen=True)
-    family: str              # family name from catalog, e.g. "SlimTorq 75-20"
-    name: str                # composite: "<sku>-<winding_type>", e.g. "STM-75-20-L-4Y"
-    R_s: float               # phase resistance [Ohm]
-    L_s: float               # synchronous inductance [H]
-    psi_m: float             # PM flux linkage [Wb]
-    p: int                   # pole pairs
-    J: float                 # rotor inertia [kg.m^2]
-    rated_voltage: float     # [V]
-    i_cont: float            # continuous line current [Arms] (validation only)
-    te_cont_cat: float       # catalog continuous torque [Nm]
-    te_peak_1s: float        # catalog 1-second peak torque [Nm]
+    family: str  # family name from catalog, e.g. "SlimTorq 75-20"
+    name: str  # composite: "<sku>-<winding_type>", e.g. "STM-75-20-L-4Y"
+    R_s: float  # phase resistance [Ohm]
+    L_s: float  # synchronous inductance [H]
+    psi_m: float  # PM flux linkage [Wb]
+    p: int  # pole pairs
+    J: float  # rotor inertia [kg.m^2]
+    rated_voltage: float  # [V]
+    i_cont: float  # continuous line current [Arms] (validation only)
+    te_cont_cat: float  # catalog continuous torque [Nm]
+    te_peak_1s: float  # catalog 1-second peak torque [Nm]
     torque_ripple_pct: float = 0.0  # spatial harmonic ripple [%], 0..100
 
 
 # ---------- Controller / encoder / trajectory configs ----------
 class EncoderConfig(BaseModel):
     """Flux-encoder parameters. Defaults = Zettlex IND-MAX-100 (22-bit)."""
+
     model_config = ConfigDict(frozen=True)
     n_bits: int = 22
     theta_offset: float = 0.0
@@ -195,23 +198,25 @@ class FocConfig(BaseModel):
     duty clamping (which would inject harmonics) by limiting in the dq
     frame instead.
     """
+
     model_config = ConfigDict(frozen=True)
     R_s: float
     L_s: float
     psi_m: float
     p: int
-    Vdc: float                       # DC-link voltage [V]
-    f_pwm: float                     # PWM carrier frequency [Hz]
-    bw_hz: float = 1000.0            # auto-tune target bandwidth
+    Vdc: float  # DC-link voltage [V]
+    f_pwm: float  # PWM carrier frequency [Hz]
+    bw_hz: float = 1000.0  # auto-tune target bandwidth
     Kp: float | None = None
     Ki: float | None = None
 
 
 class InverterConfig(BaseModel):
     """Three-phase voltage-source inverter parameters."""
+
     model_config = ConfigDict(frozen=True)
-    Vdc: float                       # DC-link voltage [V]
-    t_dead: float = 1.5e-6           # gate-driver blanking interval [s]; 0 disables
+    Vdc: float  # DC-link voltage [V]
+    t_dead: float = 1.5e-6  # gate-driver blanking interval [s]; 0 disables
 
 
 class TLRef(BaseModel):
@@ -227,9 +232,10 @@ class TLRef(BaseModel):
         TL_ref = TLRef(ref=np.array([1, 0, 2]), t=np.array([1, 3, 5]))
         # T_L = 1 for t in [0,1), 0 for t in [1,3), 2 for t in [3,5].
     """
+
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
     ref: np.ndarray
-    t:   np.ndarray
+    t: np.ndarray
 
 
 # ---------- Catalog loader ----------
@@ -237,15 +243,14 @@ SQRT2 = math.sqrt(2.0)
 DEFAULT_CATALOG_PATH = Path(__file__).resolve().parent.parent / "catalog.yaml"
 
 
-def _build_pmsm_model(family: FamilySpec, variant: VariantSpec,
-                      winding: WindingSpec) -> PmsmModel:
+def _build_pmsm_model(family: FamilySpec, variant: VariantSpec, winding: WindingSpec) -> PmsmModel:
     """Flatten one (family, variant, winding) triple into a PmsmModel."""
-    name  = f"{variant.sku}-{winding.winding_type}"
-    p     = family.common.pole_pairs
-    R_s   = winding.line_to_line_resistance.value / 2.0
-    L_s   = winding.line_to_line_inductance.value * 1e-6 / 2.0
+    name = f"{variant.sku}-{winding.winding_type}"
+    p = family.common.pole_pairs
+    R_s = winding.line_to_line_resistance.value / 2.0
+    L_s = winding.line_to_line_inductance.value * 1e-6 / 2.0
     psi_m = winding.torque_constant.value / (1.5 * p * SQRT2)
-    J     = variant.mechanical.rotational_inertia.value * 1e-7
+    J = variant.mechanical.rotational_inertia.value * 1e-7
     return PmsmModel(
         family=family.family,
         name=name,
@@ -266,12 +271,7 @@ def load_catalog(path: Path = DEFAULT_CATALOG_PATH) -> dict[str, PmsmModel]:
     """Parse catalog.yaml, return {sku-winding: PmsmModel}."""
     raw = yaml.safe_load(path.read_text())
     catalog_file = CatalogFile.model_validate(raw)
-    return {
-        f"{v.sku}-{w.winding_type}": _build_pmsm_model(family=f, variant=v, winding=w)
-        for f in catalog_file.motors
-        for v in f.variants
-        for w in v.windings
-    }
+    return {f"{v.sku}-{w.winding_type}": _build_pmsm_model(family=f, variant=v, winding=w) for f in catalog_file.motors for v in f.variants for w in v.windings}
 
 
 def predicted_continuous_torque(m: PmsmModel) -> float:
@@ -297,9 +297,9 @@ def validate() -> None:
         err = abs(te_pred - m.te_cont_cat) / m.te_cont_cat
         max_err = max(max_err, err)
         flag = " OK " if err < 0.05 else "warn"
-        print(f"{name:22s}  {te_pred:12.4f}  {m.te_cont_cat:10.4f}  {100*err:6.2f}%  {flag}")
-    print(f"\nMax relative error: {100*max_err:.2f}%")
-    assert max_err < 0.15, f"Catalog conversion off by >15% ({100*max_err:.2f}%)"
+        print(f"{name:22s}  {te_pred:12.4f}  {m.te_cont_cat:10.4f}  {100 * err:6.2f}%  {flag}")
+    print(f"\nMax relative error: {100 * max_err:.2f}%")
+    assert max_err < 0.15, f"Catalog conversion off by >15% ({100 * max_err:.2f}%)"
 
 
 if __name__ == "__main__":

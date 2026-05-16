@@ -47,13 +47,11 @@ class PWMModulator:
         self.T_pwm = 1.0 / f_pwm
 
     def _carrier(self, t: float) -> float:
-        phase = (t / self.T_pwm) % 1.0          # in [0, 1)
+        phase = (t / self.T_pwm) % 1.0  # in [0, 1)
         # Triangle peak=1 at phase=0.5, valley=0 at phase=0 and 1.
         return 1.0 - 2.0 * abs(phase - 0.5)
 
-    def step(self, v_a_ref: float, v_b_ref: float, v_c_ref: float,
-             Vdc: float, t: float, dt: float
-             ) -> tuple[float, float, float, int, int, int]:
+    def step(self, v_a_ref: float, v_b_ref: float, v_c_ref: float, Vdc: float, t: float, dt: float) -> tuple[float, float, float, int, int, int]:
         d_a = max(0.0, min(1.0, 0.5 + v_a_ref / Vdc))
         d_b = max(0.0, min(1.0, 0.5 + v_b_ref / Vdc))
         d_c = max(0.0, min(1.0, 0.5 + v_c_ref / Vdc))
@@ -95,13 +93,10 @@ class Inverter:
     def __init__(self, cfg: InverterConfig) -> None:
         self.cfg = cfg
         self.t_dead = float(cfg.t_dead)
-        self._prev_s = [-1, -1, -1]                 # force "edge" on first call
+        self._prev_s = [-1, -1, -1]  # force "edge" on first call
         self._t_since_edge = [math.inf, math.inf, math.inf]
 
-    def step(self, s_a: int, s_b: int, s_c: int,
-             i_a: float, i_b: float, i_c: float,
-             Vdc: float, dt: float
-             ) -> tuple[float, float, float]:
+    def step(self, s_a: int, s_b: int, s_c: int, i_a: float, i_b: float, i_c: float, Vdc: float, dt: float) -> tuple[float, float, float]:
         s = (s_a, s_b, s_c)
         i = (i_a, i_b, i_c)
         v = [0.0, 0.0, 0.0]
@@ -140,8 +135,7 @@ class PMSMAbcModel:
 
     def __init__(self, motor: PmsmModel) -> None:
         if not FMU_PATH.exists():
-            msg = (f"FMU not found at {FMU_PATH}.\n"
-                   f"Build it first:  (cd modelica && omc build_fmu.mos)")
+            msg = f"FMU not found at {FMU_PATH}.\nBuild it first:  (cd modelica && omc build_fmu.mos)"
             raise SystemExit(msg)
         md = read_model_description(str(FMU_PATH))
         unzip_dir = extract(str(FMU_PATH))
@@ -162,23 +156,22 @@ class PMSMAbcModel:
         self.fmu.exitInitializationMode()
 
         self._vr_in = [self._vr[n] for n in ("v_a", "v_b", "v_c", "T_L")]
-        self._vr_out = [self._vr[n] for n in ("i_a", "i_b", "i_c",
-                                              "theta_m", "omega_m", "T_e")]
+        self._vr_out = [self._vr[n] for n in ("i_a", "i_b", "i_c", "theta_m", "omega_m", "T_e")]
         self._t = 0.0
 
     def _apply_parameters(self) -> None:
         m = self.motor
         real_params = {
-            "R_s":                 m.R_s,
-            "L_s":                 m.L_s,
-            "psi_m":               m.psi_m,
-            "J":                   m.J,
-            "B":                   1.0e-5,
-            "torque_ripple_pct":   m.torque_ripple_pct / 100.0,
+            "R_s": m.R_s,
+            "L_s": m.L_s,
+            "psi_m": m.psi_m,
+            "J": m.J,
+            "B": 1.0e-5,
+            "torque_ripple_pct": m.torque_ripple_pct / 100.0,
             "torque_ripple_phase": 0.0,
         }
         int_params = {
-            "p":                   m.p,
+            "p": m.p,
             "torque_ripple_order": 6,
         }
         self.fmu.setReal([self._vr[k] for k in real_params], list(real_params.values()))

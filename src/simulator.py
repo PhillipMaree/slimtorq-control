@@ -35,17 +35,24 @@ def _tl_value_at(TL: TLRef, t: float) -> float:
 class Simulator:
     """Owns the inner sim loop. One `step(t)` call advances time by dt_sim."""
 
-    def __init__(self, *,
-                 motor: PmsmModel,
-                 foc: FOCController,
-                 pwm: PWMModulator,
-                 inverter: Inverter,
-                 pmsm: PMSMAbcModel,
-                 encoder: EncoderMeasurement,
-                 TL: TLRef,
-                 dt_sim: float,
-                 dt_ctrl: float,
-                 Vdc: float) -> None:
+    def __init__(
+        self,
+        *,
+        motor: PmsmModel,
+        foc: FOCController,
+        pwm: PWMModulator,
+        inverter: Inverter,
+        pmsm: PMSMAbcModel,
+        encoder: EncoderMeasurement,
+        TL: TLRef,
+        dt_sim: float,
+        dt_ctrl: float,
+        Vdc: float,
+        i_q_ref_override: float | None = None,
+        i_d_ref_override: float | None = None,
+        T_L_override: float | None = None,
+        bypass_pwm: bool = False,
+    ) -> None:
         self.motor = motor
         self.foc = foc
         self.pwm = pwm
@@ -56,8 +63,14 @@ class Simulator:
         self.dt_sim = dt_sim
         self.dt_ctrl = dt_ctrl
         self.Vdc = Vdc
+        self.p = motor.p
         # T_e = 1.5·p·ψ_m·i_q  =>  i_q_ref = T_e_ref / kt_dq.
         self.kt_dq = 1.5 * motor.p * motor.psi_m
+        # Debug overrides. None = derive from TLRef as in the normal run.
+        self.i_q_ref_override = i_q_ref_override
+        self.i_d_ref_override = i_d_ref_override
+        self.T_L_override = T_L_override
+        self.bypass_pwm = bypass_pwm
         # ZOH state for v_abc_ref between FOC ticks.
         self.v_a_ref = 0.0
         self.v_b_ref = 0.0
@@ -71,44 +84,67 @@ class Simulator:
         """Advance one dt_sim step. Returns a log row."""
         # (a) PMSM measurements + encoder.
         i_a, i_b, i_c, theta_m_true, omega_m_true, T_e = self.pmsm.measure()
-        (theta_m_meas, omega_m_meas, theta_e_meas,
-         i_a_meas, i_b_meas, i_c_meas) = self.encoder.step(
-            theta_m_true, omega_m_true, (i_a, i_b, i_c), t)
+        (theta_m_meas, omega_m_meas, theta_e_meas, i_a_meas, i_b_meas, i_c_meas) = self.encoder.step(theta_m_true, omega_m_true, (i_a, i_b, i_c), t)
+        omega_e_meas = self.p * omega_m_meas
 
         # (b) FOC tick once per dt_ctrl.
         T_e_ref = _tl_value_at(self.TL, t)
-        self.i_q_ref = T_e_ref / self.kt_dq
-        self.i_d_ref = 0.0
+        self.i_q_ref = self.i_q_ref_override if self.i_q_ref_override is not None else T_e_ref / self.kt_dq
+        self.i_d_ref = self.i_d_ref_override if self.i_d_ref_override is not None else 0.0
         if self._ctrl_phase >= self.dt_ctrl - 1e-15:
             self._ctrl_phase -= self.dt_ctrl
             self.v_a_ref, self.v_b_ref, self.v_c_ref = self.foc.step(
-                i_a_meas, i_b_meas, i_c_meas, theta_e_meas,
-                i_d_ref=self.i_d_ref, i_q_ref=self.i_q_ref, dt=self.dt_ctrl)
+                i_a_meas, i_b_meas, i_c_meas, theta_e_meas, omega_e_meas, i_d_ref=self.i_d_ref, i_q_ref=self.i_q_ref, dt=self.dt_ctrl
+            )
         self._ctrl_phase += self.dt_sim
 
-        # (c) PWM every sim tick.
-        d_a, d_b, d_c, s_a, s_b, s_c = self.pwm.step(
-            self.v_a_ref, self.v_b_ref, self.v_c_ref, self.Vdc, t, self.dt_sim)
-
-        # (d) Inverter — dead-time emulation uses measured i_abc sign.
-        v_a, v_b, v_c = self.inverter.step(
-            s_a, s_b, s_c, i_a, i_b, i_c, self.Vdc, self.dt_sim)
+        # (c) PWM every sim tick (or bypass).
+        if self.bypass_pwm:
+            # Ideal-voltage path: FOC refs go straight to the FMU. Duty is logged
+            # for inspection but the switch states are not used.
+            d_a = 0.5 + self.v_a_ref / self.Vdc
+            d_b = 0.5 + self.v_b_ref / self.Vdc
+            d_c = 0.5 + self.v_c_ref / self.Vdc
+            s_a = s_b = s_c = 0
+            v_a, v_b, v_c = self.v_a_ref, self.v_b_ref, self.v_c_ref
+        else:
+            d_a, d_b, d_c, s_a, s_b, s_c = self.pwm.step(self.v_a_ref, self.v_b_ref, self.v_c_ref, self.Vdc, t, self.dt_sim)
+            # (d) Inverter — dead-time emulation uses measured i_abc sign.
+            v_a, v_b, v_c = self.inverter.step(s_a, s_b, s_c, i_a, i_b, i_c, self.Vdc, self.dt_sim)
 
         # (e) PMSM advance.
-        T_L = T_e_ref
+        T_L = self.T_L_override if self.T_L_override is not None else T_e_ref
         self.pmsm.step(v_a, v_b, v_c, T_L, self.dt_sim)
 
         return {
-            "t": t, "TL_ref": T_L, "T_e": T_e,
-            "i_d_ref": self.i_d_ref, "i_q_ref": self.i_q_ref,
-            "i_d_meas": self.foc.i_d_meas, "i_q_meas": self.foc.i_q_meas,
-            "v_d_ref": self.foc.v_d, "v_q_ref": self.foc.v_q,
-            "i_a": i_a, "i_b": i_b, "i_c": i_c,
-            "theta_m_true": theta_m_true, "theta_m_meas": theta_m_meas,
-            "omega_m_true": omega_m_true, "omega_m_meas": omega_m_meas,
-            "v_a_ref": self.v_a_ref, "v_b_ref": self.v_b_ref, "v_c_ref": self.v_c_ref,
-            "d_a": d_a, "d_b": d_b, "d_c": d_c,
-            "s_a": s_a, "s_b": s_b, "s_c": s_c,
-            "v_a": v_a, "v_b": v_b, "v_c": v_c,
-            "sat_d": self.foc.sat_d, "sat_q": self.foc.sat_q,
+            "t": t,
+            "TL_ref": T_L,
+            "T_e": T_e,
+            "i_d_ref": self.i_d_ref,
+            "i_q_ref": self.i_q_ref,
+            "i_d_meas": self.foc.i_d_meas,
+            "i_q_meas": self.foc.i_q_meas,
+            "v_d_ref": self.foc.v_d,
+            "v_q_ref": self.foc.v_q,
+            "i_a": i_a,
+            "i_b": i_b,
+            "i_c": i_c,
+            "theta_m_true": theta_m_true,
+            "theta_m_meas": theta_m_meas,
+            "omega_m_true": omega_m_true,
+            "omega_m_meas": omega_m_meas,
+            "v_a_ref": self.v_a_ref,
+            "v_b_ref": self.v_b_ref,
+            "v_c_ref": self.v_c_ref,
+            "d_a": d_a,
+            "d_b": d_b,
+            "d_c": d_c,
+            "s_a": s_a,
+            "s_b": s_b,
+            "s_c": s_c,
+            "v_a": v_a,
+            "v_b": v_b,
+            "v_c": v_c,
+            "sat_d": self.foc.sat_d,
+            "sat_q": self.foc.sat_q,
         }
