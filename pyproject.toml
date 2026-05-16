@@ -5,8 +5,54 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "click>=8.3.3",
+    "dash>=4.1.0",
     "fmpy>=0.3.29",
-    "matplotlib>=3.10.9",
     "numpy>=2.4.4",
+    "plotly>=6.7.0",
+    "polars>=1.40.1",
+    "pyarrow>=24.0.0",
+    "pydantic>=2.13.4",
+    "pyyaml>=6.0.3",
 ]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+
+[tool.mypy]
+explicit_package_bases = true
+disable_error_code = ["arg-type", "return-value", "assignment", "attr-defined", "call-arg", "override", "union-attr"]
+
+[tool.ruff]
+    line-length = 180
+    extend-exclude = ["sandbox"]
+
+[tool.ruff.lint]
+# Enable pycodestyle, pyflakes, isort, and more
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "DTZ", # flake8-datetimez
+    "T10", # flake8-debugger
+    "EM",  # flake8-errmsg
+    "RUF", # Ruff-specific rules
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Control-engineering convention: keep textbook symbol casing (Kp, Ki, R_s,
+# L_s, psi_m, Vdc, T_e, T_L, TL, Tf, V_max, A1/A2/A3 …). Renaming to
+# snake_case would break the link to equations in module docstrings.
+"src/*.py" = ["N803", "N806", "N802"]
+# Plotly's documented idiom uses dict(color=..., width=...) for trace kwargs.
+"src/plots.py" = ["N803", "N806", "N802", "C408"]
+# Tuning + controller docstrings deliberately use Greek symbols (σ, θ, ω,
+# ψ, τ) to mirror the math; they are never executed as code.
+"src/tuning.py" = ["N803", "N806", "N802", "RUF002"]
+"src/controller.py" = ["N803", "N806", "N802", "RUF002"]
+[tool.coverage.run]
+source = ["src"]

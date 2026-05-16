@@ -1,3 +1,0 @@
-rm -f 210.fmutmp/sources/Plant_init.xml
-cp -a "/usr/bin/../share/omc/runtime/c/fmi/buildproject/"* 210.fmutmp/sources
-cp -a Plant_FMU.libs 210.fmutmp/sources/

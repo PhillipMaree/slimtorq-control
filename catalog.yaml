@@ -1,0 +1,2236 @@
+motors:
+  - family: "SlimTorq 25-9"
+    description: "Slotless thin-section frameless PMSM, 25 mm OD, 9 mm stator axial length"
+
+    common:
+      rated_voltage:
+        unit: "V"
+        value: 72
+      poles: 16
+      pole_pairs: 8
+      cogging_torque:
+        unit: "Nm"
+        value: 0.0
+      max_stator_temperature:
+        unit: "C"
+        value: 140
+      max_rotor_temperature:
+        unit: "C"
+        value: 85
+      ambient:
+        min:
+          unit: "C"
+          value: -40
+        max:
+          unit: "C"
+          value: 80
+        reference:
+          unit: "C"
+          value: 20
+      power_cable:
+        length:
+          unit: "mm"
+          value: 500
+        size: "AWG26"
+
+    variants:
+      - sku: "STM-25-9-M"
+        type: "Max"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 25
+            tolerance: "h9"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 12.3
+            tolerance: "+/-0.022"
+          stator_axial_length:
+            unit: "mm"
+            value: 9
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 6.07
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 5.16
+          stator_mass:
+            unit: "g"
+            value: 5.74
+          rotor_mass:
+            unit: "g"
+            value: 7.09
+          total_mass:
+            unit: "g"
+            value: 12.9
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 10.8
+          continuous_power_loss:
+            unit: "W"
+            value: 11.2
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 0.00948
+          continuous_torque:
+            unit: "Nm"
+            value: 0.023
+          peak_torque_1s:
+            unit: "Nm"
+            value: 0.116
+          peak_torque_3s:
+            unit: "Nm"
+            value: 0.083
+          peak_torque_5s:
+            unit: "Nm"
+            value: 0.070
+          electrical_time_constant:
+            unit: "us"
+            value: 8.76
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.32
+
+        windings:
+          - winding_type: "3D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.0029 }
+            voltage_constant:         { unit: "V/kRPM",  value: 0.251 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.064 }
+            line_to_line_inductance:  { unit: "uH",      value: 0.562 }
+            max_continuous_current:   { unit: "Arms",    value: 7.89 }
+            peak_current_1s:          { unit: "Arms",    value: 39.3 }
+            peak_current_3s:          { unit: "Arms",    value: 28.3 }
+            peak_current_5s:          { unit: "Arms",    value: 23.9 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 10000 }
+
+          - winding_type: "3Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.0051 }
+            voltage_constant:         { unit: "V/kRPM",  value: 0.437 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.192 }
+            line_to_line_inductance:  { unit: "uH",      value: 1.690 }
+            max_continuous_current:   { unit: "Arms",    value: 4.56 }
+            peak_current_1s:          { unit: "Arms",    value: 22.7 }
+            peak_current_3s:          { unit: "Arms",    value: 16.4 }
+            peak_current_5s:          { unit: "Arms",    value: 13.8 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 10000 }
+
+          - winding_type: "6D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.0059 }
+            voltage_constant:         { unit: "V/kRPM",  value: 0.502 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.257 }
+            line_to_line_inductance:  { unit: "uH",      value: 2.250 }
+            max_continuous_current:   { unit: "Arms",    value: 3.95 }
+            peak_current_1s:          { unit: "Arms",    value: 19.6 }
+            peak_current_3s:          { unit: "Arms",    value: 14.2 }
+            peak_current_5s:          { unit: "Arms",    value: 11.9 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 10000 }
+
+          - winding_type: "6Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.0102 }
+            voltage_constant:         { unit: "V/kRPM",  value: 0.874 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.770 }
+            line_to_line_inductance:  { unit: "uH",      value: 6.740 }
+            max_continuous_current:   { unit: "Arms",    value: 2.28 }
+            peak_current_1s:          { unit: "Arms",    value: 11.3 }
+            peak_current_3s:          { unit: "Arms",    value: 8.18 }
+            peak_current_5s:          { unit: "Arms",    value: 6.89 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 10000 }
+
+  - family: "SlimTorq 39-10"
+    description: "Slotless thin-section frameless PMSM, 39 mm OD, 10 mm stator axial length"
+
+    common:
+      rated_voltage:
+        unit: "V"
+        value: 72
+      poles: 26
+      pole_pairs: 13
+      cogging_torque:
+        unit: "Nm"
+        value: 0.0
+      max_stator_temperature:
+        unit: "C"
+        value: 140
+      max_rotor_temperature:
+        unit: "C"
+        value: 85
+      ambient:
+        min:
+          unit: "C"
+          value: -40
+        max:
+          unit: "C"
+          value: 80
+        reference:
+          unit: "C"
+          value: 20
+      power_cable:
+        length:
+          unit: "mm"
+          value: 500
+        size: "AWG26"
+
+    variants:
+      - sku: "STM-39-10-M"
+        type: "Max"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 39
+            tolerance: "h9"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 25
+            tolerance: "H9"
+          stator_axial_length:
+            unit: "mm"
+            value: 10
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 6.84
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 33.9
+          stator_mass:
+            unit: "g"
+            value: 12.6
+          rotor_mass:
+            unit: "g"
+            value: 14.8
+          total_mass:
+            unit: "g"
+            value: 27.5
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 7.14
+          continuous_power_loss:
+            unit: "W"
+            value: 15.3
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 0.0194
+          continuous_torque:
+            unit: "Nm"
+            value: 0.058
+          peak_torque_1s:
+            unit: "Nm"
+            value: 0.31
+          peak_torque_3s:
+            unit: "Nm"
+            value: 0.233
+          peak_torque_5s:
+            unit: "Nm"
+            value: 0.199
+          electrical_time_constant:
+            unit: "us"
+            value: 6.67
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.34
+
+        windings:
+          - winding_type: "2D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.007 }
+            voltage_constant:         { unit: "V/kRPM",  value: 0.568 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.079 }
+            line_to_line_inductance:  { unit: "uH",      value: 0.527 }
+            max_continuous_current:   { unit: "Arms",    value: 8.65 }
+            peak_current_1s:          { unit: "Arms",    value: 46.5 }
+            peak_current_3s:          { unit: "Arms",    value: 34.9 }
+            peak_current_5s:          { unit: "Arms",    value: 29.9 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 10000 }
+
+          - winding_type: "2Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.012 }
+            voltage_constant:         { unit: "V/kRPM",  value: 0.991 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.237 }
+            line_to_line_inductance:  { unit: "uH",      value: 1.580 }
+            max_continuous_current:   { unit: "Arms",    value: 4.99 }
+            peak_current_1s:          { unit: "Arms",    value: 26.8 }
+            peak_current_3s:          { unit: "Arms",    value: 20.2 }
+            peak_current_5s:          { unit: "Arms",    value: 17.2 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 10000 }
+
+          - winding_type: "4D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.013 }
+            voltage_constant:         { unit: "V/kRPM",  value: 1.140 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.316 }
+            line_to_line_inductance:  { unit: "uH",      value: 2.110 }
+            max_continuous_current:   { unit: "Arms",    value: 4.32 }
+            peak_current_1s:          { unit: "Arms",    value: 23.2 }
+            peak_current_3s:          { unit: "Arms",    value: 17.5 }
+            peak_current_5s:          { unit: "Arms",    value: 14.9 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 10000 }
+
+          - winding_type: "4Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.023 }
+            voltage_constant:         { unit: "V/kRPM",  value: 1.980 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.948 }
+            line_to_line_inductance:  { unit: "uH",      value: 6.320 }
+            max_continuous_current:   { unit: "Arms",    value: 2.50 }
+            peak_current_1s:          { unit: "Arms",    value: 13.4 }
+            peak_current_3s:          { unit: "Arms",    value: 10.1 }
+            peak_current_5s:          { unit: "Arms",    value: 8.62 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 10000 }
+
+  - family: "SlimTorq 51-12"
+    description: "Slotless thin-section frameless PMSM, 51 mm OD, 12 mm stator axial length"
+
+    common:
+      rated_voltage:
+        unit: "V"
+        value: 72
+      poles: 36
+      pole_pairs: 18
+      cogging_torque:
+        unit: "Nm"
+        value: 0.0
+      max_stator_temperature:
+        unit: "C"
+        value: 140
+      max_rotor_temperature:
+        unit: "C"
+        value: 85
+      ambient:
+        min:
+          unit: "C"
+          value: -40
+        max:
+          unit: "C"
+          value: 80
+        reference:
+          unit: "C"
+          value: 20
+      power_cable:
+        length:
+          unit: "mm"
+          value: 500
+        size: "AWG24"
+
+    variants:
+      - sku: "STM-51-12-M"
+        type: "Max"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 51
+            tolerance: "h9"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 37
+            tolerance: "H9"
+          stator_axial_length:
+            unit: "mm"
+            value: 12
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 9.4
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 106
+          stator_mass:
+            unit: "g"
+            value: 22
+          rotor_mass:
+            unit: "g"
+            value: 24.1
+          total_mass:
+            unit: "g"
+            value: 46.2
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 5.12
+          continuous_power_loss:
+            unit: "W"
+            value: 21.3
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 0.041
+          continuous_torque:
+            unit: "Nm"
+            value: 0.144
+          peak_torque_1s:
+            unit: "Nm"
+            value: 0.934
+          peak_torque_3s:
+            unit: "Nm"
+            value: 0.664
+          peak_torque_5s:
+            unit: "Nm"
+            value: 0.561
+          electrical_time_constant:
+            unit: "us"
+            value: 11.6
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.75
+
+        windings:
+          - winding_type: "2D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.013 }
+            voltage_constant:         { unit: "V/kRPM",  value: 1.090 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.064 }
+            line_to_line_inductance:  { unit: "uH",      value: 0.745 }
+            max_continuous_current:   { unit: "Arms",    value: 11.3 }
+            peak_current_1s:          { unit: "Arms",    value: 73.4 }
+            peak_current_3s:          { unit: "Arms",    value: 52.2 }
+            peak_current_5s:          { unit: "Arms",    value: 44.1 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 10000 }
+
+          - winding_type: "2Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.022 }
+            voltage_constant:         { unit: "V/kRPM",  value: 1.890 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.192 }
+            line_to_line_inductance:  { unit: "uH",      value: 2.24 }
+            max_continuous_current:   { unit: "Arms",    value: 6.55 }
+            peak_current_1s:          { unit: "Arms",    value: 42.4 }
+            peak_current_3s:          { unit: "Arms",    value: 30.2 }
+            peak_current_5s:          { unit: "Arms",    value: 25.4 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 10000 }
+
+          - winding_type: "4D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.025 }
+            voltage_constant:         { unit: "V/kRPM",  value: 2.170 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.256 }
+            line_to_line_inductance:  { unit: "uH",      value: 2.98 }
+            max_continuous_current:   { unit: "Arms",    value: 5.67 }
+            peak_current_1s:          { unit: "Arms",    value: 36.7 }
+            peak_current_3s:          { unit: "Arms",    value: 26.1 }
+            peak_current_5s:          { unit: "Arms",    value: 22 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 10000 }
+
+          - winding_type: "4Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.044 }
+            voltage_constant:         { unit: "V/kRPM",  value: 3.780 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.769 }
+            line_to_line_inductance:  { unit: "uH",      value: 8.95 }
+            max_continuous_current:   { unit: "Arms",    value: 3.28 }
+            peak_current_1s:          { unit: "Arms",    value: 21.2 }
+            peak_current_3s:          { unit: "Arms",    value: 15.1 }
+            peak_current_5s:          { unit: "Arms",    value: 12.7 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 10000 }
+
+          - winding_type: "8D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.051 }
+            voltage_constant:         { unit: "V/kRPM",  value: 4.340 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.020 }
+            line_to_line_inductance:  { unit: "uH",      value: 11.90 }
+            max_continuous_current:   { unit: "Arms",    value: 2.84 }
+            peak_current_1s:          { unit: "Arms",    value: 18.4 }
+            peak_current_3s:          { unit: "Arms",    value: 13.1 }
+            peak_current_5s:          { unit: "Arms",    value: 11 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 10000 }
+
+          - winding_type: "8Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.088 }
+            voltage_constant:         { unit: "V/kRPM",  value: 7.550 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 3.070 }
+            line_to_line_inductance:  { unit: "uH",      value: 35.80 }
+            max_continuous_current:   { unit: "Arms",    value: 1.64 }
+            peak_current_1s:          { unit: "Arms",    value: 10.6 }
+            peak_current_3s:          { unit: "Arms",    value: 7.54 }
+            peak_current_5s:          { unit: "Arms",    value: 6.36 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 9530 }
+
+  - family: "SlimTorq 75-20"
+    description: "Slotless thin-section frameless PMSM, 75 mm OD, 20 mm stator axial length"
+
+    common:
+      rated_voltage:
+        unit: "V"
+        value: 72
+      poles: 36
+      pole_pairs: 18
+      cogging_torque:
+        unit: "Nm"
+        value: 0.0
+      max_stator_temperature:
+        unit: "C"
+        value: 140
+      max_rotor_temperature:
+        unit: "C"
+        value: 85
+      ambient:
+        min:
+          unit: "C"
+          value: -40
+        max:
+          unit: "C"
+          value: 80
+        reference:
+          unit: "C"
+          value: 20
+      power_cable:
+        length:
+          unit: "mm"
+          value: 500
+        size: "AWG24"
+
+    variants:
+      - sku: "STM-75-20-L"
+        type: "Lite"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 75
+            tolerance: "h9"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 61
+            tolerance: "H9"
+          stator_axial_length:
+            unit: "mm"
+            value: 20
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 15.7
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 620
+          stator_mass:
+            unit: "g"
+            value: 67.1
+          rotor_mass:
+            unit: "g"
+            value: 58.7
+          total_mass:
+            unit: "g"
+            value: 126.0
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 2.59
+          continuous_power_loss:
+            unit: "W"
+            value: 42.1
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 0.132
+          continuous_torque:
+            unit: "Nm"
+            value: 0.654
+          peak_torque_1s:
+            unit: "Nm"
+            value: 5.22
+          peak_torque_3s:
+            unit: "Nm"
+            value: 3.56
+          peak_torque_5s:
+            unit: "Nm"
+            value: 2.99
+          electrical_time_constant:
+            unit: "us"
+            value: 33.7
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.57
+
+        windings:
+          - winding_type: "2D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.032 }
+            voltage_constant:         { unit: "V/kRPM",  value: 2.68 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.038 }
+            line_to_line_inductance:  { unit: "uH",      value: 1.28 }
+            max_continuous_current:   { unit: "Arms",    value: 20.7 }
+            peak_current_1s:          { unit: "Arms",    value: 165 }
+            peak_current_3s:          { unit: "Arms",    value: 113 }
+            peak_current_5s:          { unit: "Arms",    value: 94.7 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 8400 }
+
+          - winding_type: "2Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.055 }
+            voltage_constant:         { unit: "V/kRPM",  value: 4.7 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.114 }
+            line_to_line_inductance:  { unit: "uH",      value: 3.84 }
+            max_continuous_current:   { unit: "Arms",    value: 12.00 }
+            peak_current_1s:          { unit: "Arms",    value: 95.5 }
+            peak_current_3s:          { unit: "Arms",    value: 65 }
+            peak_current_5s:          { unit: "Arms",    value: 54.7 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 8400 }
+
+          - winding_type: "4D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.063 }
+            voltage_constant:         { unit: "V/kRPM",  value: 5.37 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.152 }
+            line_to_line_inductance:  { unit: "uH",      value: 5.13 }
+            max_continuous_current:   { unit: "Arms",    value: 10.40 }
+            peak_current_1s:          { unit: "Arms",    value: 82.7 }
+            peak_current_3s:          { unit: "Arms",    value: 56.3 }
+            peak_current_5s:          { unit: "Arms",    value: 47.4 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 8400 }
+
+          - winding_type: "4Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.109 }
+            voltage_constant:         { unit: "V/kRPM",  value: 9.4 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.457 }
+            line_to_line_inductance:  { unit: "uH",      value: 15.4 }
+            max_continuous_current:   { unit: "Arms",    value: 5.98 }
+            peak_current_1s:          { unit: "Arms",    value: 47.7 }
+            peak_current_3s:          { unit: "Arms",    value: 32.5 }
+            peak_current_5s:          { unit: "Arms",    value: 27.3 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 7660 }
+
+          - winding_type: "8D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.126 }
+            voltage_constant:         { unit: "V/kRPM",  value: 10.7 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.609 }
+            line_to_line_inductance:  { unit: "uH",      value: 20.5 }
+            max_continuous_current:   { unit: "Arms",    value: 5.18 }
+            peak_current_1s:          { unit: "Arms",    value: 41.3 }
+            peak_current_3s:          { unit: "Arms",    value: 28.2 }
+            peak_current_5s:          { unit: "Arms",    value: 23.7 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 6710 }
+
+          - winding_type: "8Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.219 }
+            voltage_constant:         { unit: "V/kRPM",  value: 18.8 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.83 }
+            line_to_line_inductance:  { unit: "uH",      value: 61.5 }
+            max_continuous_current:   { unit: "Arms",    value: 2.99 }
+            peak_current_1s:          { unit: "Arms",    value: 23.9 }
+            peak_current_3s:          { unit: "Arms",    value: 16.3 }
+            peak_current_5s:          { unit: "Arms",    value: 13.7 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 3830 }
+
+      - sku: "STM-75-20-M"
+        type: "Max"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 75
+            tolerance: "h9"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 53
+            tolerance: "H9"
+          stator_axial_length:
+            unit: "mm"
+            value: 20
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 15.7
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 1350
+          stator_mass:
+            unit: "g"
+            value: 67.1
+          rotor_mass:
+            unit: "g"
+            value: 142.0
+          total_mass:
+            unit: "g"
+            value: 209.0
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 2.59
+          continuous_power_loss:
+            unit: "W"
+            value: 42.8
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 0.179
+          continuous_torque:
+            unit: "Nm"
+            value: 0.905
+          peak_torque_1s:
+            unit: "Nm"
+            value: 7.09
+          peak_torque_3s:
+            unit: "Nm"
+            value: 4.83
+          peak_torque_5s:
+            unit: "Nm"
+            value: 4.06
+          electrical_time_constant:
+            unit: "us"
+            value: 33.7
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.40
+
+        windings:
+          - winding_type: "2D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.043 }
+            voltage_constant:         { unit: "V/kRPM",  value: 3.65 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.038 }
+            line_to_line_inductance:  { unit: "uH",      value: 1.28 }
+            max_continuous_current:   { unit: "Arms",    value: 21.10 }
+            peak_current_1s:          { unit: "Arms",    value: 165 }
+            peak_current_3s:          { unit: "Arms",    value: 113 }
+            peak_current_5s:          { unit: "Arms",    value: 94.7 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 4800 }
+
+          - winding_type: "2Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.0743 }
+            voltage_constant:         { unit: "V/kRPM",  value: 6.38 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.114 }
+            line_to_line_inductance:  { unit: "uH",      value: 3.84 }
+            max_continuous_current:   { unit: "Arms",    value: 12.20 }
+            peak_current_1s:          { unit: "Arms",    value: 95.5 }
+            peak_current_3s:          { unit: "Arms",    value: 65 }
+            peak_current_5s:          { unit: "Arms",    value: 54.7 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 4800 }
+
+          - winding_type: "4D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.086 }
+            voltage_constant:         { unit: "V/kRPM",  value: 7.3 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.152 }
+            line_to_line_inductance:  { unit: "uH",      value: 5.13 }
+            max_continuous_current:   { unit: "Arms",    value: 10.60 }
+            peak_current_1s:          { unit: "Arms",    value: 82.7 }
+            peak_current_3s:          { unit: "Arms",    value: 56.3 }
+            peak_current_5s:          { unit: "Arms",    value: 47.4 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 4800 }
+
+          - winding_type: "4Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.149 }
+            voltage_constant:         { unit: "V/kRPM",  value: 12.8 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.457 }
+            line_to_line_inductance:  { unit: "uH",      value: 15.4 }
+            max_continuous_current:   { unit: "Arms",    value: 6.09 }
+            peak_current_1s:          { unit: "Arms",    value: 47.7 }
+            peak_current_3s:          { unit: "Arms",    value: 32.5 }
+            peak_current_5s:          { unit: "Arms",    value: 27.3 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 4800 }
+
+          - winding_type: "8D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.172 }
+            voltage_constant:         { unit: "V/kRPM",  value: 14.6 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.609 }
+            line_to_line_inductance:  { unit: "uH",      value: 20.5 }
+            max_continuous_current:   { unit: "Arms",    value: 5.28 }
+            peak_current_1s:          { unit: "Arms",    value: 41.3 }
+            peak_current_3s:          { unit: "Arms",    value: 28.2 }
+            peak_current_5s:          { unit: "Arms",    value: 23.7 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 4800 }
+
+          - winding_type: "8Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.297 }
+            voltage_constant:         { unit: "V/kRPM",  value: 25.5 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.83 }
+            line_to_line_inductance:  { unit: "uH",      value: 61.5 }
+            max_continuous_current:   { unit: "Arms",    value: 3.05 }
+            peak_current_1s:          { unit: "Arms",    value: 23.9 }
+            peak_current_3s:          { unit: "Arms",    value: 16.3 }
+            peak_current_5s:          { unit: "Arms",    value: 13.7 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 2820 }
+
+  - family: "SlimTorq 85-24"
+    description: "Slotless thin-section frameless PMSM, 85 mm OD, 24 mm stator axial length"
+
+    common:
+      rated_voltage:
+        unit: "V"
+        value: 72
+      poles: 42
+      pole_pairs: 21
+      cogging_torque:
+        unit: "Nm"
+        value: 0.0
+      max_stator_temperature:
+        unit: "C"
+        value: 140
+      max_rotor_temperature:
+        unit: "C"
+        value: 85
+      ambient:
+        min:
+          unit: "C"
+          value: -40
+        max:
+          unit: "C"
+          value: 80
+        reference:
+          unit: "C"
+          value: 20
+      power_cable:
+        length:
+          unit: "mm"
+          value: 500
+        size: "AWG24"
+
+    variants:
+      - sku: "STM-85-24-L"
+        type: "Lite"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 85
+            tolerance: "h9"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 69
+            tolerance: "H9"
+          stator_axial_length:
+            unit: "mm"
+            value: 24
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 22.2
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 1380
+          stator_mass:
+            unit: "g"
+            value: 98.4
+          rotor_mass:
+            unit: "g"
+            value: 101
+          total_mass:
+            unit: "g"
+            value: 200
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 1.98
+          continuous_power_loss:
+            unit: "W"
+            value: 54.9
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 0.188
+          continuous_torque:
+            unit: "Nm"
+            value: 1.06
+          peak_torque_1s:
+            unit: "Nm"
+            value: 7.98
+          peak_torque_3s:
+            unit: "Nm"
+            value: 5.64
+          peak_torque_5s:
+            unit: "Nm"
+            value: 4.84
+          electrical_time_constant:
+            unit: "us"
+            value: 27.1
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.57
+
+        windings:
+          - winding_type: "2D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.061 }
+            voltage_constant:         { unit: "V/kRPM",  value: 5.17 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.070 }
+            line_to_line_inductance:  { unit: "uH",      value: 1.9 }
+            max_continuous_current:   { unit: "Arms",    value: 17.5 }
+            peak_current_1s:          { unit: "Arms",    value: 131 }
+            peak_current_3s:          { unit: "Arms",    value: 92.7 }
+            peak_current_5s:          { unit: "Arms",    value: 79.6 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 7900 }
+
+          - winding_type: "2Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.105 }
+            voltage_constant:         { unit: "V/kRPM",  value: 9.06 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.21 }
+            line_to_line_inductance:  { unit: "uH",      value: 5.69 }
+            max_continuous_current:   { unit: "Arms",    value: 10.1 }
+            peak_current_1s:          { unit: "Arms",    value: 75.8 }
+            peak_current_3s:          { unit: "Arms",    value: 53.5 }
+            peak_current_5s:          { unit: "Arms",    value: 45.9 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 7900 }
+
+          - winding_type: "4D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.122 }
+            voltage_constant:         { unit: "V/kRPM",  value: 10.3 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.28 }
+            line_to_line_inductance:  { unit: "uH",      value: 7.59 }
+            max_continuous_current:   { unit: "Arms",    value: 8.7 }
+            peak_current_1s:          { unit: "Arms",    value: 65.6 }
+            peak_current_3s:          { unit: "Arms",    value: 46.4 }
+            peak_current_5s:          { unit: "Arms",    value: 39.8 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 6960 }
+
+          - winding_type: "4Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.211 }
+            voltage_constant:         { unit: "V/kRPM",  value: 18.1 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.84 }
+            line_to_line_inductance:  { unit: "uH",      value: 22.8 }
+            max_continuous_current:   { unit: "Arms",    value: 5.0 }
+            peak_current_1s:          { unit: "Arms",    value: 37.9 }
+            peak_current_3s:          { unit: "Arms",    value: 26.8 }
+            peak_current_5s:          { unit: "Arms",    value: 23 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 3970 }
+
+          - winding_type: "8D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.243 }
+            voltage_constant:         { unit: "V/kRPM",  value: 20.7 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.12 }
+            line_to_line_inductance:  { unit: "uH",      value: 30.4 }
+            max_continuous_current:   { unit: "Arms",    value: 4.4 }
+            peak_current_1s:          { unit: "Arms",    value: 32.8 }
+            peak_current_3s:          { unit: "Arms",    value: 23.2 }
+            peak_current_5s:          { unit: "Arms",    value: 19.9 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 3480 }
+
+          - winding_type: "8Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.421 }
+            voltage_constant:         { unit: "V/kRPM",  value: 36.2 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 3.36 }
+            line_to_line_inductance:  { unit: "uH",      value: 91.1 }
+            max_continuous_current:   { unit: "Arms",    value: 2.5 }
+            peak_current_1s:          { unit: "Arms",    value: 18.9 }
+            peak_current_3s:          { unit: "Arms",    value: 13.4 }
+            peak_current_5s:          { unit: "Arms",    value: 11.5 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1990 }
+
+      - sku: "STM-85-24-M"
+        type: "Max"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 85
+            tolerance: "h9"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 64
+            tolerance: "H9"
+          stator_axial_length:
+            unit: "mm"
+            value: 24
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 22.2
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 2480
+          stator_mass:
+            unit: "g"
+            value: 98.4
+          rotor_mass:
+            unit: "g"
+            value: 192
+          total_mass:
+            unit: "g"
+            value: 291
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 1.98
+          continuous_power_loss:
+            unit: "W"
+            value: 55.6
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 0.252
+          continuous_torque:
+            unit: "Nm"
+            value: 1.44
+          peak_torque_1s:
+            unit: "Nm"
+            value: 10.7
+          peak_torque_3s:
+            unit: "Nm"
+            value: 7.57
+          peak_torque_5s:
+            unit: "Nm"
+            value: 6.49
+          electrical_time_constant:
+            unit: "us"
+            value: 27.1
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.43
+
+        windings:
+          - winding_type: "2D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.082 }
+            voltage_constant:         { unit: "V/kRPM",  value: 6.95 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.070 }
+            line_to_line_inductance:  { unit: "uH",      value: 1.9 }
+            max_continuous_current:   { unit: "Arms",    value: 17.7 }
+            peak_current_1s:          { unit: "Arms",    value: 131 }
+            peak_current_3s:          { unit: "Arms",    value: 92.7 }
+            peak_current_5s:          { unit: "Arms",    value: 79.6 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 5100 }
+
+          - winding_type: "2Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.141 }
+            voltage_constant:         { unit: "V/kRPM",  value: 12.1 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.21 }
+            line_to_line_inductance:  { unit: "uH",      value: 5.69 }
+            max_continuous_current:   { unit: "Arms",    value: 10.2 }
+            peak_current_1s:          { unit: "Arms",    value: 75.8 }
+            peak_current_3s:          { unit: "Arms",    value: 53.5 }
+            peak_current_5s:          { unit: "Arms",    value: 45.9 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 5100 }
+
+          - winding_type: "4D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.163 }
+            voltage_constant:         { unit: "V/kRPM",  value: 13.9 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.28 }
+            line_to_line_inductance:  { unit: "uH",      value: 7.59 }
+            max_continuous_current:   { unit: "Arms",    value: 8.9 }
+            peak_current_1s:          { unit: "Arms",    value: 65.6 }
+            peak_current_3s:          { unit: "Arms",    value: 46.4 }
+            peak_current_5s:          { unit: "Arms",    value: 39.8 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 5100 }
+
+          - winding_type: "4Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.283 }
+            voltage_constant:         { unit: "V/kRPM",  value: 24.3 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.84 }
+            line_to_line_inductance:  { unit: "uH",      value: 22.8 }
+            max_continuous_current:   { unit: "Arms",    value: 5.1 }
+            peak_current_1s:          { unit: "Arms",    value: 37.9 }
+            peak_current_3s:          { unit: "Arms",    value: 26.8 }
+            peak_current_5s:          { unit: "Arms",    value: 23 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 2970 }
+
+          - winding_type: "8D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.326 }
+            voltage_constant:         { unit: "V/kRPM",  value: 27.8 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.12 }
+            line_to_line_inductance:  { unit: "uH",      value: 30.4 }
+            max_continuous_current:   { unit: "Arms",    value: 4.4 }
+            peak_current_1s:          { unit: "Arms",    value: 32.8 }
+            peak_current_3s:          { unit: "Arms",    value: 23.2 }
+            peak_current_5s:          { unit: "Arms",    value: 19.9 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 2590 }
+
+          - winding_type: "8Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.566 }
+            voltage_constant:         { unit: "V/kRPM",  value: 48.6 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 3.36 }
+            line_to_line_inductance:  { unit: "uH",      value: 91.1 }
+            max_continuous_current:   { unit: "Arms",    value: 2.6 }
+            peak_current_1s:          { unit: "Arms",    value: 18.9 }
+            peak_current_3s:          { unit: "Arms",    value: 13.4 }
+            peak_current_5s:          { unit: "Arms",    value: 11.5 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1480 }
+
+  - family: "SlimTorq 105-17"
+    description: "Slotless thin-section frameless PMSM, 105 mm OD, 17 mm stator axial length"
+
+    common:
+      rated_voltage:
+        unit: "V"
+        value: 72
+      poles: 54
+      pole_pairs: 27
+      cogging_torque:
+        unit: "Nm"
+        value: 0.0
+      max_stator_temperature:
+        unit: "C"
+        value: 140
+      max_rotor_temperature:
+        unit: "C"
+        value: 85
+      ambient:
+        min:
+          unit: "C"
+          value: -40
+        max:
+          unit: "C"
+          value: 80
+        reference:
+          unit: "C"
+          value: 20
+      power_cable:
+        length:
+          unit: "mm"
+          value: 500
+        size: "AWG22"
+
+    variants:
+      - sku: "STM-105-17-L"
+        type: "Lite"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 105
+            tolerance: "h9"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 89
+            tolerance: "H9"
+          stator_axial_length:
+            unit: "mm"
+            value: 17
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 13.6
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 2070
+          stator_mass:
+            unit: "g"
+            value: 82.4
+          rotor_mass:
+            unit: "g"
+            value: 93.9
+          total_mass:
+            unit: "g"
+            value: 177
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 2.24
+          continuous_power_loss:
+            unit: "W"
+            value: 48.6
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 0.214
+          continuous_torque:
+            unit: "Nm"
+            value: 1.14
+          peak_torque_1s:
+            unit: "Nm"
+            value: 8.61
+          peak_torque_3s:
+            unit: "Nm"
+            value: 6.22
+          peak_torque_5s:
+            unit: "Nm"
+            value: 5.33
+          electrical_time_constant:
+            unit: "us"
+            value: 21.6
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.50
+
+        windings:
+          - winding_type: "2D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.074 }
+            voltage_constant:         { unit: "V/kRPM",  value: 6.31 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.080 }
+            line_to_line_inductance:  { unit: "uH",      value: 1.73 }
+            max_continuous_current:   { unit: "Arms",    value: 15.3 }
+            peak_current_1s:          { unit: "Arms",    value: 116 }
+            peak_current_3s:          { unit: "Arms",    value: 83.9 }
+            peak_current_5s:          { unit: "Arms",    value: 71.9 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 6200 }
+
+          - winding_type: "2Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.128 }
+            voltage_constant:         { unit: "V/kRPM",  value: 11 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.241 }
+            line_to_line_inductance:  { unit: "uH",      value: 5.20 }
+            max_continuous_current:   { unit: "Arms",    value: 8.8 }
+            peak_current_1s:          { unit: "Arms",    value: 67 }
+            peak_current_3s:          { unit: "Arms",    value: 48.5 }
+            peak_current_5s:          { unit: "Arms",    value: 41.5 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 6200 }
+
+          - winding_type: "4D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.148 }
+            voltage_constant:         { unit: "V/kRPM",  value: 12.6 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.321 }
+            line_to_line_inductance:  { unit: "uH",      value: 6.93 }
+            max_continuous_current:   { unit: "Arms",    value: 7.7 }
+            peak_current_1s:          { unit: "Arms",    value: 58.1 }
+            peak_current_3s:          { unit: "Arms",    value: 42 }
+            peak_current_5s:          { unit: "Arms",    value: 35.9 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 5710 }
+
+          - winding_type: "4Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.257 }
+            voltage_constant:         { unit: "V/kRPM",  value: 22.1 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.964 }
+            line_to_line_inductance:  { unit: "uH",      value: 20.8 }
+            max_continuous_current:   { unit: "Arms",    value: 4.4 }
+            peak_current_1s:          { unit: "Arms",    value: 33.5 }
+            peak_current_3s:          { unit: "Arms",    value: 24.2 }
+            peak_current_5s:          { unit: "Arms",    value: 20.8 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 3260 }
+
+          - winding_type: "8D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.297 }
+            voltage_constant:         { unit: "V/kRPM",  value: 25.2 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.29 }
+            line_to_line_inductance:  { unit: "uH",      value: 27.7 }
+            max_continuous_current:   { unit: "Arms",    value: 3.8 }
+            peak_current_1s:          { unit: "Arms",    value: 29 }
+            peak_current_3s:          { unit: "Arms",    value: 21 }
+            peak_current_5s:          { unit: "Arms",    value: 18.0 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 2850 }
+
+          - winding_type: "8Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.514 }
+            voltage_constant:         { unit: "V/kRPM",  value: 44.1 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 3.86 }
+            line_to_line_inductance:  { unit: "uH",      value: 83.2 }
+            max_continuous_current:   { unit: "Arms",    value: 2.2 }
+            peak_current_1s:          { unit: "Arms",    value: 16.8 }
+            peak_current_3s:          { unit: "Arms",    value: 12.1 }
+            peak_current_5s:          { unit: "Arms",    value: 10.4 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1630 }
+
+      - sku: "STM-105-17-M"
+        type: "Max"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 105
+            tolerance: "h9"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 84
+            tolerance: "H9"
+          stator_axial_length:
+            unit: "mm"
+            value: 17
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 13.6
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 3550
+          stator_mass:
+            unit: "g"
+            value: 82.4
+          rotor_mass:
+            unit: "g"
+            value: 168
+          total_mass:
+            unit: "g"
+            value: 250
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 2.24
+          continuous_power_loss:
+            unit: "W"
+            value: 48.9
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 0.259
+          continuous_torque:
+            unit: "Nm"
+            value: 1.39
+          peak_torque_1s:
+            unit: "Nm"
+            value: 10.5
+          peak_torque_3s:
+            unit: "Nm"
+            value: 7.56
+          peak_torque_5s:
+            unit: "Nm"
+            value: 6.47
+          electrical_time_constant:
+            unit: "us"
+            value: 21.6
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.40
+
+        windings:
+          - winding_type: "2D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.090 }
+            voltage_constant:         { unit: "V/kRPM",  value: 7.67 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.080 }
+            line_to_line_inductance:  { unit: "uH",      value: 1.73 }
+            max_continuous_current:   { unit: "Arms",    value: 15.4 }
+            peak_current_1s:          { unit: "Arms",    value: 116 }
+            peak_current_3s:          { unit: "Arms",    value: 83.9 }
+            peak_current_5s:          { unit: "Arms",    value: 71.9 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 4300 }
+
+          - winding_type: "2Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.156 }
+            voltage_constant:         { unit: "V/kRPM",  value: 13.4 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.241 }
+            line_to_line_inductance:  { unit: "uH",      value: 5.20 }
+            max_continuous_current:   { unit: "Arms",    value: 8.9 }
+            peak_current_1s:          { unit: "Arms",    value: 67 }
+            peak_current_3s:          { unit: "Arms",    value: 48.5 }
+            peak_current_5s:          { unit: "Arms",    value: 41.5 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 4300 }
+
+          - winding_type: "4D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.180 }
+            voltage_constant:         { unit: "V/kRPM",  value: 15.3 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.321 }
+            line_to_line_inductance:  { unit: "uH",      value: 6.93 }
+            max_continuous_current:   { unit: "Arms",    value: 7.7 }
+            peak_current_1s:          { unit: "Arms",    value: 58.1 }
+            peak_current_3s:          { unit: "Arms",    value: 42 }
+            peak_current_5s:          { unit: "Arms",    value: 35.9 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 4300 }
+
+          - winding_type: "4Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.312 }
+            voltage_constant:         { unit: "V/kRPM",  value: 26.8 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.964 }
+            line_to_line_inductance:  { unit: "uH",      value: 20.8 }
+            max_continuous_current:   { unit: "Arms",    value: 4.4 }
+            peak_current_1s:          { unit: "Arms",    value: 33.5 }
+            peak_current_3s:          { unit: "Arms",    value: 24.2 }
+            peak_current_5s:          { unit: "Arms",    value: 20.8 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 2690 }
+
+          - winding_type: "8D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.36 }
+            voltage_constant:         { unit: "V/kRPM",  value: 30.7 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.29 }
+            line_to_line_inductance:  { unit: "uH",      value: 27.7 }
+            max_continuous_current:   { unit: "Arms",    value: 3.9 }
+            peak_current_1s:          { unit: "Arms",    value: 29 }
+            peak_current_3s:          { unit: "Arms",    value: 21 }
+            peak_current_5s:          { unit: "Arms",    value: 18.0 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 2350 }
+
+          - winding_type: "8Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.624 }
+            voltage_constant:         { unit: "V/kRPM",  value: 53.5 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 3.86 }
+            line_to_line_inductance:  { unit: "uH",      value: 83.2 }
+            max_continuous_current:   { unit: "Arms",    value: 2.2 }
+            peak_current_1s:          { unit: "Arms",    value: 16.8 }
+            peak_current_3s:          { unit: "Arms",    value: 12.1 }
+            peak_current_5s:          { unit: "Arms",    value: 10.4 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1340 }
+
+  - family: "SlimTorq 130-27"
+    description: "Slotless thin-section frameless PMSM, 130 mm OD, 27 mm stator axial length"
+
+    common:
+      rated_voltage:
+        unit: "V"
+        value: 72
+      poles: 46
+      pole_pairs: 23
+      cogging_torque:
+        unit: "Nm"
+        value: 0.0
+      max_stator_temperature:
+        unit: "C"
+        value: 140
+      max_rotor_temperature:
+        unit: "C"
+        value: 85
+      ambient:
+        min:
+          unit: "C"
+          value: -40
+        max:
+          unit: "C"
+          value: 80
+        reference:
+          unit: "C"
+          value: 20
+      power_cable:
+        length:
+          unit: "mm"
+          value: 500
+        size: "AWG18"
+
+    variants:
+      - sku: "STM-130-27-L"
+        type: "Lite"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 130
+            tolerance: "h9"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 112
+            tolerance: "H9"
+          stator_axial_length:
+            unit: "mm"
+            value: 27
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 15.5
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 3910
+          stator_mass:
+            unit: "g"
+            value: 221
+          rotor_mass:
+            unit: "g"
+            value: 116
+          total_mass:
+            unit: "g"
+            value: 337
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 1.35
+          continuous_power_loss:
+            unit: "W"
+            value: 80.7
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 0.296
+          continuous_torque:
+            unit: "Nm"
+            value: 2.03
+          peak_torque_1s:
+            unit: "Nm"
+            value: 19.7
+          peak_torque_3s:
+            unit: "Nm"
+            value: 13.00
+          peak_torque_5s:
+            unit: "Nm"
+            value: 11.00
+          electrical_time_constant:
+            unit: "us"
+            value: 62
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.92
+
+        windings:
+          - winding_type: "2D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.065 }
+            voltage_constant:         { unit: "V/kRPM",  value: 5.52 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.032 }
+            line_to_line_inductance:  { unit: "uH",      value: 2 }
+            max_continuous_current:   { unit: "Arms",    value: 31.1 }
+            peak_current_1s:          { unit: "Arms",    value: 303 }
+            peak_current_3s:          { unit: "Arms",    value: 200 }
+            peak_current_5s:          { unit: "Arms",    value: 169 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 6300 }
+
+          - winding_type: "2Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.113 }
+            voltage_constant:         { unit: "V/kRPM",  value: 9.73 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.0968 }
+            line_to_line_inductance:  { unit: "uH",      value: 6.00 }
+            max_continuous_current:   { unit: "Arms",    value: 18.0 }
+            peak_current_1s:          { unit: "Arms",    value: 175 }
+            peak_current_3s:          { unit: "Arms",    value: 116 }
+            peak_current_5s:          { unit: "Arms",    value: 97.3 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 6300 }
+
+          - winding_type: "4D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.130 }
+            voltage_constant:         { unit: "V/kRPM",  value: 11 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.129 }
+            line_to_line_inductance:  { unit: "uH",      value: 8 }
+            max_continuous_current:   { unit: "Arms",    value: 15.6 }
+            peak_current_1s:          { unit: "Arms",    value: 151 }
+            peak_current_3s:          { unit: "Arms",    value: 100 }
+            peak_current_5s:          { unit: "Arms",    value: 84.3 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 6300 }
+
+          - winding_type: "4Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.226 }
+            voltage_constant:         { unit: "V/kRPM",  value: 19.5 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.387 }
+            line_to_line_inductance:  { unit: "uH",      value: 24 }
+            max_continuous_current:   { unit: "Arms",    value: 9.0 }
+            peak_current_1s:          { unit: "Arms",    value: 87.4 }
+            peak_current_3s:          { unit: "Arms",    value: 57.8 }
+            peak_current_5s:          { unit: "Arms",    value: 48.7 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 3700 }
+
+          - winding_type: "8D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.260 }
+            voltage_constant:         { unit: "V/kRPM",  value: 22.1 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.516 }
+            line_to_line_inductance:  { unit: "uH",      value: 32 }
+            max_continuous_current:   { unit: "Arms",    value: 7.8 }
+            peak_current_1s:          { unit: "Arms",    value: 75.7 }
+            peak_current_3s:          { unit: "Arms",    value: 50.1 }
+            peak_current_5s:          { unit: "Arms",    value: 42.1 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 3260 }
+
+          - winding_type: "8Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.451 }
+            voltage_constant:         { unit: "V/kRPM",  value: 38.9 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.55 }
+            line_to_line_inductance:  { unit: "uH",      value: 96 }
+            max_continuous_current:   { unit: "Arms",    value: 4.5 }
+            peak_current_1s:          { unit: "Arms",    value: 43.7 }
+            peak_current_3s:          { unit: "Arms",    value: 28.9 }
+            peak_current_5s:          { unit: "Arms",    value: 24.3 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1850 }
+
+      - sku: "STM-130-27-M"
+        type: "Max"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 130
+            tolerance: "h9"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 107
+            tolerance: "H9"
+          stator_axial_length:
+            unit: "mm"
+            value: 27
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 18.3
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 8360
+          stator_mass:
+            unit: "g"
+            value: 221
+          rotor_mass:
+            unit: "g"
+            value: 254
+          total_mass:
+            unit: "g"
+            value: 475
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 1.35
+          continuous_power_loss:
+            unit: "W"
+            value: 81.4
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 0.507
+          continuous_torque:
+            unit: "Nm"
+            value: 3.51
+          peak_torque_1s:
+            unit: "Nm"
+            value: 33.8
+          peak_torque_3s:
+            unit: "Nm"
+            value: 22.4
+          peak_torque_5s:
+            unit: "Nm"
+            value: 18.80
+          electrical_time_constant:
+            unit: "us"
+            value: 62
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.62
+
+        windings:
+          - winding_type: "2D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.112 }
+            voltage_constant:         { unit: "V/kRPM",  value: 9.48 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.032 }
+            line_to_line_inductance:  { unit: "uH",      value: 2 }
+            max_continuous_current:   { unit: "Arms",    value: 31.4 }
+            peak_current_1s:          { unit: "Arms",    value: 303 }
+            peak_current_3s:          { unit: "Arms",    value: 200 }
+            peak_current_5s:          { unit: "Arms",    value: 169 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 4200 }
+
+          - winding_type: "2Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.193 }
+            voltage_constant:         { unit: "V/kRPM",  value: 16.6 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.0968 }
+            line_to_line_inductance:  { unit: "uH",      value: 6.00 }
+            max_continuous_current:   { unit: "Arms",    value: 18.1 }
+            peak_current_1s:          { unit: "Arms",    value: 175 }
+            peak_current_3s:          { unit: "Arms",    value: 116 }
+            peak_current_5s:          { unit: "Arms",    value: 97.3 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 4200 }
+
+          - winding_type: "4D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.223 }
+            voltage_constant:         { unit: "V/kRPM",  value: 19 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.129 }
+            line_to_line_inductance:  { unit: "uH",      value: 8 }
+            max_continuous_current:   { unit: "Arms",    value: 15.7 }
+            peak_current_1s:          { unit: "Arms",    value: 151 }
+            peak_current_3s:          { unit: "Arms",    value: 100 }
+            peak_current_5s:          { unit: "Arms",    value: 84.3 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 3800 }
+
+          - winding_type: "4Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.387 }
+            voltage_constant:         { unit: "V/kRPM",  value: 33.3 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.387 }
+            line_to_line_inductance:  { unit: "uH",      value: 24 }
+            max_continuous_current:   { unit: "Arms",    value: 9.1 }
+            peak_current_1s:          { unit: "Arms",    value: 87.4 }
+            peak_current_3s:          { unit: "Arms",    value: 57.8 }
+            peak_current_5s:          { unit: "Arms",    value: 48.6 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 2160 }
+
+          - winding_type: "8D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.446 }
+            voltage_constant:         { unit: "V/kRPM",  value: 37.9 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.516 }
+            line_to_line_inductance:  { unit: "uH",      value: 32 }
+            max_continuous_current:   { unit: "Arms",    value: 7.9 }
+            peak_current_1s:          { unit: "Arms",    value: 75.7 }
+            peak_current_3s:          { unit: "Arms",    value: 50.1 }
+            peak_current_5s:          { unit: "Arms",    value: 42.1 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1900 }
+
+          - winding_type: "8Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.773 }
+            voltage_constant:         { unit: "V/kRPM",  value: 66.5 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.55 }
+            line_to_line_inductance:  { unit: "uH",      value: 96 }
+            max_continuous_current:   { unit: "Arms",    value: 4.5 }
+            peak_current_1s:          { unit: "Arms",    value: 43.7 }
+            peak_current_3s:          { unit: "Arms",    value: 28.9 }
+            peak_current_5s:          { unit: "Arms",    value: 24.3 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1080 }
+
+  - family: "SlimTorq 160-17"
+    description: "Slotless thin-section frameless PMSM, 160 mm OD, 17 mm stator axial length"
+
+    common:
+      rated_voltage:
+        unit: "V"
+        value: 72
+      poles: 68
+      pole_pairs: 34
+      cogging_torque:
+        unit: "Nm"
+        value: 0.0
+      max_stator_temperature:
+        unit: "C"
+        value: 140
+      max_rotor_temperature:
+        unit: "C"
+        value: 85
+      ambient:
+        min:
+          unit: "C"
+          value: -40
+        max:
+          unit: "C"
+          value: 80
+        reference:
+          unit: "C"
+          value: 20
+      power_cable:
+        length:
+          unit: "mm"
+          value: 500
+        size: "AWG18"
+
+    variants:
+      - sku: "STM-160-17-L"
+        type: "Lite"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 160
+            tolerance: "h9"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 140
+            tolerance: "H9"
+          stator_axial_length:
+            unit: "mm"
+            value: 17
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 12.9
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 8400
+          stator_mass:
+            unit: "g"
+            value: 153
+          rotor_mass:
+            unit: "g"
+            value: 165
+          total_mass:
+            unit: "g"
+            value: 318
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 1.65
+          continuous_power_loss:
+            unit: "W"
+            value: 73.5
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 0.377
+          continuous_torque:
+            unit: "Nm"
+            value: 2.34
+          peak_torque_1s:
+            unit: "Nm"
+            value: 18.8
+          peak_torque_3s:
+            unit: "Nm"
+            value: 13.60
+          peak_torque_5s:
+            unit: "Nm"
+            value: 11.80
+          electrical_time_constant:
+            unit: "us"
+            value: 25.7
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.64
+
+        windings:
+          - winding_type: "2D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.135 }
+            voltage_constant:         { unit: "V/kRPM",  value: 11.5 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.085 }
+            line_to_line_inductance:  { unit: "uH",      value: 2.19 }
+            max_continuous_current:   { unit: "Arms",    value: 17.3 }
+            peak_current_1s:          { unit: "Arms",    value: 139 }
+            peak_current_3s:          { unit: "Arms",    value: 101 }
+            peak_current_5s:          { unit: "Arms",    value: 87.1 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 4800 }
+
+          - winding_type: "2Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.234 }
+            voltage_constant:         { unit: "V/kRPM",  value: 20.1 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.256 }
+            line_to_line_inductance:  { unit: "uH",      value: 6.57 }
+            max_continuous_current:   { unit: "Arms",    value: 10.0 }
+            peak_current_1s:          { unit: "Arms",    value: 80.4 }
+            peak_current_3s:          { unit: "Arms",    value: 58.1 }
+            peak_current_5s:          { unit: "Arms",    value: 50.3 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 3580 }
+
+          - winding_type: "4D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.270 }
+            voltage_constant:         { unit: "V/kRPM",  value: 22.9 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.341 }
+            line_to_line_inductance:  { unit: "uH",      value: 8.76 }
+            max_continuous_current:   { unit: "Arms",    value: 8.7 }
+            peak_current_1s:          { unit: "Arms",    value: 69.6 }
+            peak_current_3s:          { unit: "Arms",    value: 50.3 }
+            peak_current_5s:          { unit: "Arms",    value: 43.6 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 3140 }
+
+          - winding_type: "4Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.467 }
+            voltage_constant:         { unit: "V/kRPM",  value: 40.2 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.02 }
+            line_to_line_inductance:  { unit: "uH",      value: 26.3 }
+            max_continuous_current:   { unit: "Arms",    value: 5.0 }
+            peak_current_1s:          { unit: "Arms",    value: 40.2 }
+            peak_current_3s:          { unit: "Arms",    value: 29 }
+            peak_current_5s:          { unit: "Arms",    value: 25.1 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1790 }
+
+          - winding_type: "8D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.540 }
+            voltage_constant:         { unit: "V/kRPM",  value: 45.9 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.36 }
+            line_to_line_inductance:  { unit: "uH",      value: 35 }
+            max_continuous_current:   { unit: "Arms",    value: 4.3 }
+            peak_current_1s:          { unit: "Arms",    value: 34.8 }
+            peak_current_3s:          { unit: "Arms",    value: 25.1 }
+            peak_current_5s:          { unit: "Arms",    value: 21.8 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1570 }
+
+          - winding_type: "8Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.935 }
+            voltage_constant:         { unit: "V/kRPM",  value: 80.4 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 4.09 }
+            line_to_line_inductance:  { unit: "uH",      value: 105 }
+            max_continuous_current:   { unit: "Arms",    value: 2.5 }
+            peak_current_1s:          { unit: "Arms",    value: 20.1 }
+            peak_current_3s:          { unit: "Arms",    value: 14.5 }
+            peak_current_5s:          { unit: "Arms",    value: 12.6 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 895 }
+
+      - sku: "STM-160-17-M"
+        type: "Max"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 160
+            tolerance: "h9"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 135
+            tolerance: "H9"
+          stator_axial_length:
+            unit: "mm"
+            value: 17
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 12.9
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 13800
+          stator_mass:
+            unit: "g"
+            value: 153
+          rotor_mass:
+            unit: "g"
+            value: 273
+          total_mass:
+            unit: "g"
+            value: 426
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 1.65
+          continuous_power_loss:
+            unit: "W"
+            value: 73.6
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 0.469
+          continuous_torque:
+            unit: "Nm"
+            value: 2.94
+          peak_torque_1s:
+            unit: "Nm"
+            value: 23.4
+          peak_torque_3s:
+            unit: "Nm"
+            value: 16.9
+          peak_torque_5s:
+            unit: "Nm"
+            value: 14.60
+          electrical_time_constant:
+            unit: "us"
+            value: 25.7
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.51
+
+        windings:
+          - winding_type: "2D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.168 }
+            voltage_constant:         { unit: "V/kRPM",  value: 14.3 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.085 }
+            line_to_line_inductance:  { unit: "uH",      value: 2.19 }
+            max_continuous_current:   { unit: "Arms",    value: 17.5 }
+            peak_current_1s:          { unit: "Arms",    value: 139 }
+            peak_current_3s:          { unit: "Arms",    value: 101 }
+            peak_current_5s:          { unit: "Arms",    value: 87.1 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 3400 }
+
+          - winding_type: "2Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.291 }
+            voltage_constant:         { unit: "V/kRPM",  value: 25 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.256 }
+            line_to_line_inductance:  { unit: "uH",      value: 6.57 }
+            max_continuous_current:   { unit: "Arms",    value: 10.1 }
+            peak_current_1s:          { unit: "Arms",    value: 80.4 }
+            peak_current_3s:          { unit: "Arms",    value: 58.1 }
+            peak_current_5s:          { unit: "Arms",    value: 50.3 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 2880 }
+
+          - winding_type: "4D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.336 }
+            voltage_constant:         { unit: "V/kRPM",  value: 28.5 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.341 }
+            line_to_line_inductance:  { unit: "uH",      value: 8.76 }
+            max_continuous_current:   { unit: "Arms",    value: 8.8 }
+            peak_current_1s:          { unit: "Arms",    value: 69.6 }
+            peak_current_3s:          { unit: "Arms",    value: 50.3 }
+            peak_current_5s:          { unit: "Arms",    value: 43.6 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 2520 }
+
+          - winding_type: "4Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.581 }
+            voltage_constant:         { unit: "V/kRPM",  value: 50 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.02 }
+            line_to_line_inductance:  { unit: "uH",      value: 26.3 }
+            max_continuous_current:   { unit: "Arms",    value: 5.1 }
+            peak_current_1s:          { unit: "Arms",    value: 40.2 }
+            peak_current_3s:          { unit: "Arms",    value: 29 }
+            peak_current_5s:          { unit: "Arms",    value: 25.1 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1440 }
+
+          - winding_type: "8D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.671 }
+            voltage_constant:         { unit: "V/kRPM",  value: 57.1 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.36 }
+            line_to_line_inductance:  { unit: "uH",      value: 35 }
+            max_continuous_current:   { unit: "Arms",    value: 4.4 }
+            peak_current_1s:          { unit: "Arms",    value: 34.8 }
+            peak_current_3s:          { unit: "Arms",    value: 25.1 }
+            peak_current_5s:          { unit: "Arms",    value: 21.8 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1260 }
+
+          - winding_type: "8Y"
+            torque_constant:          { unit: "Nm/Arms", value: 1.16 }
+            voltage_constant:         { unit: "V/kRPM",  value: 99.9 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 4.09 }
+            line_to_line_inductance:  { unit: "uH",      value: 105 }
+            max_continuous_current:   { unit: "Arms",    value: 2.5 }
+            peak_current_1s:          { unit: "Arms",    value: 20.1 }
+            peak_current_3s:          { unit: "Arms",    value: 14.5 }
+            peak_current_5s:          { unit: "Arms",    value: 12.6 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 721 }
+
+  - family: "SlimTorq 190-35"
+    description: "Slotless thin-section frameless PMSM, 190 mm OD, 35 mm stator axial length"
+
+    common:
+      rated_voltage:
+        unit: "V"
+        value: 72
+      poles: 74
+      pole_pairs: 37
+      cogging_torque:
+        unit: "Nm"
+        value: 0.0
+      max_stator_temperature:
+        unit: "C"
+        value: 140
+      max_rotor_temperature:
+        unit: "C"
+        value: 85
+      ambient:
+        min:
+          unit: "C"
+          value: -40
+        max:
+          unit: "C"
+          value: 80
+        reference:
+          unit: "C"
+          value: 20
+      power_cable:
+        length:
+          unit: "mm"
+          value: 500
+        size: "AWG16"
+
+    variants:
+      - sku: "STM-190-35-L"
+        type: "Lite"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 190
+            tolerance: "h10"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 157
+            tolerance: "H9"
+          stator_axial_length:
+            unit: "mm"
+            value: 35
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 26.7
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 40042
+          stator_mass:
+            unit: "g"
+            value: 489
+          rotor_mass:
+            unit: "g"
+            value: 551
+          total_mass:
+            unit: "g"
+            value: 1089
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 0.57
+          continuous_power_loss:
+            unit: "W"
+            value: 189.2
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 0.84
+          continuous_torque:
+            unit: "Nm"
+            value: 8.72
+          peak_torque_1s:
+            unit: "Nm"
+            value: 68.31
+          peak_torque_3s:
+            unit: "Nm"
+            value: 48.17
+          peak_torque_5s:
+            unit: "Nm"
+            value: 41.87
+          electrical_time_constant:
+            unit: "us"
+            value: 47.2
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.59
+
+        windings:
+          - winding_type: "2D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.329 }
+            voltage_constant:         { unit: "V/kRPM",  value: 28.0 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.105 }
+            line_to_line_inductance:  { unit: "uH",      value: 5 }
+            max_continuous_current:   { unit: "Arms",    value: 28.6 }
+            peak_current_1s:          { unit: "Arms",    value: 207.6 }
+            peak_current_3s:          { unit: "Arms",    value: 146.4 }
+            peak_current_5s:          { unit: "Arms",    value: 127.2 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1900 }
+
+          - winding_type: "2Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.570 }
+            voltage_constant:         { unit: "V/kRPM",  value: 49.0 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.314 }
+            line_to_line_inductance:  { unit: "uH",      value: 15 }
+            max_continuous_current:   { unit: "Arms",    value: 16.5 }
+            peak_current_1s:          { unit: "Arms",    value: 119.8 }
+            peak_current_3s:          { unit: "Arms",    value: 84.5 }
+            peak_current_5s:          { unit: "Arms",    value: 73.4 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1464 }
+
+          - winding_type: "4D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.658 }
+            voltage_constant:         { unit: "V/kRPM",  value: 55.9 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.418 }
+            line_to_line_inductance:  { unit: "uH",      value: 20 }
+            max_continuous_current:   { unit: "Arms",    value: 14.3 }
+            peak_current_1s:          { unit: "Arms",    value: 103.8 }
+            peak_current_3s:          { unit: "Arms",    value: 73.2 }
+            peak_current_5s:          { unit: "Arms",    value: 63.6 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1286 }
+
+          - winding_type: "4Y"
+            torque_constant:          { unit: "Nm/Arms", value: 1.140 }
+            voltage_constant:         { unit: "V/kRPM",  value: 98.1 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.254 }
+            line_to_line_inductance:  { unit: "uH",      value: 59 }
+            max_continuous_current:   { unit: "Arms",    value: 8.3 }
+            peak_current_1s:          { unit: "Arms",    value: 59.9 }
+            peak_current_3s:          { unit: "Arms",    value: 42.3 }
+            peak_current_5s:          { unit: "Arms",    value: 36.7 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 732 }
+
+          - winding_type: "8D"
+            torque_constant:          { unit: "Nm/Arms", value: 1.317 }
+            voltage_constant:         { unit: "V/kRPM",  value: 111.9 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.672 }
+            line_to_line_inductance:  { unit: "uH",      value: 79 }
+            max_continuous_current:   { unit: "Arms",    value: 7.2 }
+            peak_current_1s:          { unit: "Arms",    value: 51.9 }
+            peak_current_3s:          { unit: "Arms",    value: 36.6 }
+            peak_current_5s:          { unit: "Arms",    value: 31.8 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 643 }
+
+          - winding_type: "8Y"
+            torque_constant:          { unit: "Nm/Arms", value: 2.280 }
+            voltage_constant:         { unit: "V/kRPM",  value: 196.1 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 5.017 }
+            line_to_line_inductance:  { unit: "uH",      value: 237 }
+            max_continuous_current:   { unit: "Arms",    value: 4.1 }
+            peak_current_1s:          { unit: "Arms",    value: 30.0 }
+            peak_current_3s:          { unit: "Arms",    value: 21.1 }
+            peak_current_5s:          { unit: "Arms",    value: 18.4 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 366 }
+
+      - sku: "STM-190-35-M"
+        type: "Max"
+
+        mechanical:
+          stator_outer_diameter:
+            unit: "mm"
+            value: 190
+            tolerance: "h10"
+          rotor_inner_diameter:
+            unit: "mm"
+            value: 155
+            tolerance: "H9"
+          stator_axial_length:
+            unit: "mm"
+            value: 35
+            tolerance: "+/-0.2"
+          rotor_axial_length:
+            unit: "mm"
+            value: 32.4
+            tolerance: "+/-0.15"
+          rotational_inertia:
+            unit: "g.cm^2"
+            value: 59538
+          stator_mass:
+            unit: "g"
+            value: 489
+          rotor_mass:
+            unit: "g"
+            value: 810
+          total_mass:
+            unit: "g"
+            value: 1352
+
+        thermal:
+          thermal_resistance:
+            unit: "C/W"
+            value: 0.57
+          continuous_power_loss:
+            unit: "W"
+            value: 189.2
+
+        performance_envelope:
+          motor_constant:
+            unit: "Nm/sqrt(W)"
+            value: 1.08
+          continuous_torque:
+            unit: "Nm"
+            value: 11.29
+          peak_torque_1s:
+            unit: "Nm"
+            value: 88.05
+          peak_torque_3s:
+            unit: "Nm"
+            value: 62.10
+          peak_torque_5s:
+            unit: "Nm"
+            value: 53.98
+          electrical_time_constant:
+            unit: "us"
+            value: 47.2
+          spatial_harmonic_torque_ripple:
+            unit: "%"
+            value: 0.51
+
+        windings:
+          - winding_type: "2D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.439 }
+            voltage_constant:         { unit: "V/kRPM",  value: 37.3 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.105 }
+            line_to_line_inductance:  { unit: "uH",      value: 5 }
+            max_continuous_current:   { unit: "Arms",    value: 28.6 }
+            peak_current_1s:          { unit: "Arms",    value: 200.6 }
+            peak_current_3s:          { unit: "Arms",    value: 141.5 }
+            peak_current_5s:          { unit: "Arms",    value: 123.0 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1300 }
+
+          - winding_type: "2Y"
+            torque_constant:          { unit: "Nm/Arms", value: 0.760 }
+            voltage_constant:         { unit: "V/kRPM",  value: 65.3 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.314 }
+            line_to_line_inductance:  { unit: "uH",      value: 15 }
+            max_continuous_current:   { unit: "Arms",    value: 16.5 }
+            peak_current_1s:          { unit: "Arms",    value: 115.9 }
+            peak_current_3s:          { unit: "Arms",    value: 81.7 }
+            peak_current_5s:          { unit: "Arms",    value: 71.0 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 1136 }
+
+          - winding_type: "4D"
+            torque_constant:          { unit: "Nm/Arms", value: 0.878 }
+            voltage_constant:         { unit: "V/kRPM",  value: 74.7 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 0.418 }
+            line_to_line_inductance:  { unit: "uH",      value: 20 }
+            max_continuous_current:   { unit: "Arms",    value: 14.3 }
+            peak_current_1s:          { unit: "Arms",    value: 100.3 }
+            peak_current_3s:          { unit: "Arms",    value: 70.7 }
+            peak_current_5s:          { unit: "Arms",    value: 61.5 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 996 }
+
+          - winding_type: "4Y"
+            torque_constant:          { unit: "Nm/Arms", value: 1.520 }
+            voltage_constant:         { unit: "V/kRPM",  value: 130.6 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.254 }
+            line_to_line_inductance:  { unit: "uH",      value: 59 }
+            max_continuous_current:   { unit: "Arms",    value: 8.3 }
+            peak_current_1s:          { unit: "Arms",    value: 57.9 }
+            peak_current_3s:          { unit: "Arms",    value: 40.9 }
+            peak_current_5s:          { unit: "Arms",    value: 35.5 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 568 }
+
+          - winding_type: "8D"
+            torque_constant:          { unit: "Nm/Arms", value: 1.755 }
+            voltage_constant:         { unit: "V/kRPM",  value: 149.3 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 1.672 }
+            line_to_line_inductance:  { unit: "uH",      value: 79 }
+            max_continuous_current:   { unit: "Arms",    value: 7.2 }
+            peak_current_1s:          { unit: "Arms",    value: 50.2 }
+            peak_current_3s:          { unit: "Arms",    value: 35.4 }
+            peak_current_5s:          { unit: "Arms",    value: 30.8 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 498 }
+
+          - winding_type: "8Y"
+            torque_constant:          { unit: "Nm/Arms", value: 3.040 }
+            voltage_constant:         { unit: "V/kRPM",  value: 261.3 }
+            line_to_line_resistance:  { unit: "Ohm",     value: 5.017 }
+            line_to_line_inductance:  { unit: "uH",      value: 237 }
+            max_continuous_current:   { unit: "Arms",    value: 4.1 }
+            peak_current_1s:          { unit: "Arms",    value: 29.0 }
+            peak_current_3s:          { unit: "Arms",    value: 20.4 }
+            peak_current_5s:          { unit: "Arms",    value: 17.8 }
+            max_speed_at_max_voltage: { unit: "RPM",     value: 284 }

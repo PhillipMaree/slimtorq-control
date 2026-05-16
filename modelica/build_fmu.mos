@@ -1,4 +1,4 @@
-// OpenModelica script to compile Alva.Plant to an FMI 2.0 CS FMU.
+// OpenModelica script to compile Alva.SlotlessPMSM_abc to an FMI 2.0 CS FMU.
 // Run from this directory:    omc build_fmu.mos
 // The resulting .fmu is written to the current directory (modelica/).
 
@@ -6,7 +6,7 @@ loadModel(Modelica); getErrorString();
 loadFile("Alva.mo"); getErrorString();
 
 fmuPath := buildModelFMU(
-  Alva.Plant,
+  Alva.SlotlessPMSM_abc,
   version = "2.0",
   fmuType = "cs",
   platforms = {"dynamic"}

@@ -1,0 +1,206 @@
+/* Alva Industries brand palette for the SlimTorq simulator UI.
+ * Sampled from alva/logo.png (coral butterfly + dark ALVA wordmark) and the
+ * SlimTorq product catalog (coral accents on white).
+ */
+
+:root {
+    --alva-coral:        #F76E5C;
+    --alva-coral-dark:   #E0543F;
+    --alva-coral-soft:   #FFE4DE;
+    --alva-text:         #1A1A1A;
+    --alva-text-muted:   #5B5B5B;
+    --alva-bg:           #FFFFFF;
+    --alva-bg-panel:     #F7F7F8;
+    --alva-border:       #E5E5E7;
+}
+
+body {
+    margin: 0;
+    background: var(--alva-bg);
+    color: var(--alva-text);
+    font-family: "Inter", "Helvetica Neue", system-ui, -apple-system, sans-serif;
+    font-feature-settings: "ss01", "cv11";
+}
+
+/* Config panel ----------------------------------------------------------- */
+
+.alva-panel {
+    padding: 0;
+    width: 28rem;
+    box-sizing: border-box;
+    border-right: 1px solid var(--alva-border);
+    height: 100vh;
+    overflow-y: auto;
+    background: var(--alva-bg-panel);
+}
+
+.alva-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1.2rem 1.25rem 1rem;
+    border-bottom: 2px solid var(--alva-coral);
+    background: var(--alva-bg);
+}
+
+.alva-header img {
+    height: 2.4rem;
+    width: auto;
+}
+
+.alva-header-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
+}
+
+.alva-header-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--alva-text);
+    letter-spacing: -0.01em;
+}
+
+.alva-header-sub {
+    font-size: 0.78rem;
+    color: var(--alva-coral);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.alva-body {
+    padding: 0.5rem 1.25rem 1.25rem;
+}
+
+.alva-section {
+    border-top: 1px solid var(--alva-border);
+    padding: 0.8rem 0 0.4rem;
+}
+
+.alva-section:first-of-type {
+    border-top: none;
+    padding-top: 0.4rem;
+}
+
+.alva-section h4 {
+    margin: 0 0 0.5rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--alva-text-muted);
+}
+
+/* Inputs ----------------------------------------------------------------- */
+
+.alva-row {
+    display: flex;
+    align-items: center;
+    margin: 0.25rem 0;
+}
+
+.alva-row label {
+    width: 10rem;
+    font-size: 0.86rem;
+    color: var(--alva-text);
+}
+
+.alva-row input[type="number"],
+.alva-row input[type="text"] {
+    width: 8rem;
+    padding: 0.3rem 0.5rem;
+    border: 1px solid var(--alva-border);
+    border-radius: 0.25rem;
+    background: var(--alva-bg);
+    color: var(--alva-text);
+    font: 0.86rem ui-monospace, "SF Mono", Menlo, monospace;
+    transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.alva-row input[type="number"]:focus,
+.alva-row input[type="text"]:focus {
+    outline: none;
+    border-color: var(--alva-coral);
+    box-shadow: 0 0 0 3px var(--alva-coral-soft);
+}
+
+.alva-row input[disabled] {
+    background: #F0F0F2;
+    color: var(--alva-text-muted);
+}
+
+/* Dropdown (Dash) */
+.alva-row .Select-control,
+.alva-row .dash-dropdown .Select-control {
+    border: 1px solid var(--alva-border) !important;
+    border-radius: 0.25rem !important;
+    min-height: 2.1rem !important;
+    height: 2.1rem !important;
+}
+
+.alva-row .Select-control:hover {
+    border-color: var(--alva-coral) !important;
+}
+
+/* Radio items */
+.alva-row .alva-radio label,
+input[type="radio"] + label {
+    font-size: 0.86rem;
+    color: var(--alva-text);
+}
+
+input[type="radio"] {
+    accent-color: var(--alva-coral);
+}
+
+/* Simulate button -------------------------------------------------------- */
+
+.alva-btn-simulate {
+    margin-top: 1.1rem;
+    width: 100%;
+    padding: 0.65rem 1.5rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: var(--alva-coral);
+    color: white;
+    border: none;
+    border-radius: 0.3rem;
+    cursor: pointer;
+    transition: background 120ms ease, transform 80ms ease, box-shadow 120ms ease;
+    box-shadow: 0 1px 2px rgba(247, 110, 92, 0.25);
+}
+
+.alva-btn-simulate:hover {
+    background: var(--alva-coral-dark);
+    box-shadow: 0 2px 6px rgba(247, 110, 92, 0.35);
+}
+
+.alva-btn-simulate:active {
+    transform: translateY(1px);
+}
+
+/* Status line ------------------------------------------------------------ */
+
+.alva-status {
+    margin-top: 0.7rem;
+    padding: 0.5rem 0.6rem;
+    font: 0.78rem ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--alva-text-muted);
+    background: var(--alva-bg);
+    border: 1px solid var(--alva-border);
+    border-radius: 0.25rem;
+    word-break: break-all;
+}
+
+/* Plot panel ------------------------------------------------------------- */
+
+.alva-plot-panel {
+    flex: 1;
+    overflow-y: auto;
+    height: 100vh;
+    background: var(--alva-bg);
+    padding: 0.75rem 1rem;
+}
