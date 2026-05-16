@@ -161,6 +161,7 @@ class PmsmModel(BaseModel):
     rated_voltage: float     # [V]
     i_cont: float            # continuous line current [Arms] (validation only)
     te_cont_cat: float       # catalog continuous torque [Nm]
+    te_peak_1s: float        # catalog 1-second peak torque [Nm]
     torque_ripple_pct: float = 0.0  # spatial harmonic ripple [%], 0..100
 
 
@@ -256,6 +257,7 @@ def _build_pmsm_model(family: FamilySpec, variant: VariantSpec,
         rated_voltage=float(family.common.rated_voltage.value),
         i_cont=winding.max_continuous_current.value,
         te_cont_cat=variant.performance_envelope.continuous_torque.value,
+        te_peak_1s=variant.performance_envelope.peak_torque_1s.value,
         torque_ripple_pct=variant.performance_envelope.spatial_harmonic_torque_ripple.value,
     )
 

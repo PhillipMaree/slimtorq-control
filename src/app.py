@@ -28,7 +28,7 @@ from main import (
     run,
 )
 from model import EncoderConfig, load_catalog
-from tuning import auto_pi_gains_from_bw, modulus_optimum_tuning
+from tuning import modulus_optimum_tuning
 
 ASSETS_DIR = str(Path(__file__).resolve().parent.parent / "assets")
 
@@ -50,14 +50,12 @@ def _params_hash(json_str: str) -> str:
     return hashlib.blake2b(json_str.encode(), digest_size=8).hexdigest()
 
 
-def _gains_for_mode(variant: str, pi_mode: str, bw_hz: float, f_pwm: float
+def _gains_for_mode(variant: str, pi_mode: str, f_pwm: float
                     ) -> tuple[float, float] | None:
     """Compute auto-suggested (Kp, Ki) for the variant + mode. None for manual."""
     if variant is None:
         return None
     m = CATALOG[variant]
-    if pi_mode == "auto" and bw_hz is not None:
-        return auto_pi_gains_from_bw(m.R_s, m.L_s, float(bw_hz))
     if pi_mode == "modulus_optimum" and f_pwm is not None:
         return modulus_optimum_tuning(m.R_s, m.L_s, float(f_pwm))
     return None
@@ -69,13 +67,32 @@ def _gains_for_mode(variant: str, pi_mode: str, bw_hz: float, f_pwm: float
 LABEL_W = "10rem"
 
 
-def _num(id_: str, value, step=None, mn=None, mx=None, disabled=False, suffix=""):
-    label = id_ + (f" [{suffix}]" if suffix else "")
+def _num(id_: str, value, step=None, mn=None, mx=None,
+         disabled=False, suffix="", label=None):
+    """Numeric input row.
+
+    `label` may be a plain string OR a list of HTML children (e.g. mixing
+    Unicode Greek with `html.Sub(...)` / `html.Sup(...)` for typographic
+    subscripts/superscripts). When None, falls back to the component id.
+    """
+    if label is None:
+        parts: list = [id_]
+    elif isinstance(label, str):
+        parts = [label]
+    else:
+        parts = list(label)
+    if suffix:
+        parts = [*parts, f" [{suffix}]"]
     return html.Div(className="alva-row", children=[
-        html.Label(label, htmlFor=id_),
+        html.Label(parts, htmlFor=id_),
         dcc.Input(id=id_, type="number", value=value, step=step, min=mn, max=mx,
                   disabled=disabled),
     ])
+
+
+def _sub(stem: str, sub: str) -> list:
+    """Render `stem_sub` with a real HTML subscript."""
+    return [stem, html.Sub(sub)]
 
 
 def _section(title: str, children: list) -> html.Div:
@@ -83,10 +100,12 @@ def _section(title: str, children: list) -> html.Div:
                     children=[html.H4(title), *children])
 
 
-# Compute initial Kp/Ki for the default variant @ default bw_hz so the manual
-# inputs show a sensible starting value the first time the user picks Manual.
-kp0, ki0 = auto_pi_gains_from_bw(
-    CATALOG[DEFAULT_VARIANT].R_s, CATALOG[DEFAULT_VARIANT].L_s, 1000.0)
+# Compute initial Kp/Ki for the default variant via modulus-optimum tuning at
+# the default f_pwm so the manual inputs show a sensible starting value the
+# first time the user picks Manual.
+DEFAULT_F_PWM = 20000.0
+kp0, ki0 = modulus_optimum_tuning(
+    CATALOG[DEFAULT_VARIANT].R_s, CATALOG[DEFAULT_VARIANT].L_s, DEFAULT_F_PWM)
 
 
 HEADER = html.Div(className="alva-header", children=[
@@ -115,34 +134,57 @@ CONFIG_PANEL = html.Div(className="alva-panel", children=[
         _section("Power stage", [
             # Vdc is derived from the selected variant's catalog rated_voltage
             # at runtime (motor.rated_voltage); not a UI input.
-            _num("f_pwm", 20000.0, step=1000.0, mn=1000.0, mx=100000.0, suffix="Hz"),
-            _num("t_dead", 1.5e-6, step=1e-7, mn=0.0, mx=5e-6, suffix="s"),
+            _num("f_pwm",  20000.0, step=1000.0, mn=1000.0, mx=100000.0,
+                 suffix="Hz", label=_sub("f", "pwm")),
+            _num("t_dead", 1.5e-6,  step=1e-7,   mn=0.0,    mx=5e-6,
+                 suffix="s",  label=_sub("t", "dead")),
         ]),
 
         _section("Encoder", [
-            _num("n_bits", 22, step=1, mn=10, mx=26),
-            _num("theta_offset", 0.0, step=1e-3, mn=-math.pi, mx=math.pi, suffix="rad"),
-            _num("A1", 2.4e-5, step=1e-6, mn=0.0, mx=1e-3, suffix="rad"),
-            _num("k1", 1, step=1, mn=1, mx=100),
-            _num("phi1", 0.0, step=1e-3, mn=0.0, mx=TWO_PI, suffix="rad"),
-            _num("A2", 5.0e-6, step=1e-6, mn=0.0, mx=1e-3, suffix="rad"),
-            _num("k2", 2, step=1, mn=1, mx=100),
-            _num("phi2", 0.0, step=1e-3, mn=0.0, mx=TWO_PI, suffix="rad"),
-            _num("A3", 1.0e-6, step=1e-6, mn=0.0, mx=1e-3, suffix="rad"),
-            _num("k3", 4, step=1, mn=1, mx=100),
-            _num("phi3", 0.0, step=1e-3, mn=0.0, mx=TWO_PI, suffix="rad"),
-            _num("ts_enc", 1e-4, step=1e-5, mn=1e-6, mx=1e-2, suffix="s"),
+            _num("n_bits",       22,  step=1, mn=10, mx=26,
+                 label=_sub("N", "bits")),
+            _num("theta_offset", 0.0, step=1e-3, mn=-math.pi, mx=math.pi,
+                 suffix="rad", label=_sub("θ", "offset")),
+            _num("A1",   2.4e-5, step=1e-6, mn=0.0, mx=1e-3, suffix="rad",
+                 label=_sub("A", "1")),
+            _num("k1",   1,      step=1,    mn=1,   mx=100,
+                 label=_sub("k", "1")),
+            _num("phi1", 0.0,    step=1e-3, mn=0.0, mx=TWO_PI, suffix="rad",
+                 label=_sub("φ", "1")),
+            _num("A2",   5.0e-6, step=1e-6, mn=0.0, mx=1e-3, suffix="rad",
+                 label=_sub("A", "2")),
+            _num("k2",   2,      step=1,    mn=1,   mx=100,
+                 label=_sub("k", "2")),
+            _num("phi2", 0.0,    step=1e-3, mn=0.0, mx=TWO_PI, suffix="rad",
+                 label=_sub("φ", "2")),
+            _num("A3",   1.0e-6, step=1e-6, mn=0.0, mx=1e-3, suffix="rad",
+                 label=_sub("A", "3")),
+            _num("k3",   4,      step=1,    mn=1,   mx=100,
+                 label=_sub("k", "3")),
+            _num("phi3", 0.0,    step=1e-3, mn=0.0, mx=TWO_PI, suffix="rad",
+                 label=_sub("φ", "3")),
+            _num("ts_enc", 1e-4, step=1e-5, mn=1e-6, mx=1e-2, suffix="s",
+                 label=_sub("T", "s,enc")),
         ]),
 
         _section("Trajectory (load-torque step)", [
-            _num("t_end", 0.05, step=1e-3, mn=1e-3, mx=1.0, suffix="s"),
-            _num("t_step", 0.005, step=1e-3, mn=0.0, mx=1.0, suffix="s"),
-            _num("t_step_frac", 0.25, step=0.05, mn=0.0, mx=1.5),
-            _num("Tf", None, step=1e-3, mn=1e-3, mx=5.0, suffix="s (None=auto)"),
+            _num("t_end",       0.05,  step=1e-3, mn=1e-3, mx=1.0,
+                 suffix="s", label=_sub("t", "end")),
+            _num("t_step",      0.005, step=1e-3, mn=0.0,  mx=1.0,
+                 suffix="s", label=_sub("t", "step")),
+            # The amplitude of the load-torque step is t_step_frac · T_e^peak,
+            # i.e. this input *is* T_L^ref / T_e^peak.
+            _num("t_step_frac", 2/3,   step=0.05, mn=0.0,  mx=1.5,
+                 label=["T", html.Sub("L"), html.Sup("ref"),
+                        " / T", html.Sub("e"), html.Sup("peak")]),
+            _num("Tf",          None,  step=1e-3, mn=1e-3, mx=5.0,
+                 suffix="s (None=auto)", label=_sub("T", "f")),
         ]),
 
         _section("Timing", [
-            _num("dt_sim", None, step=1e-7, mn=1e-7, mx=1e-4, suffix="s (None=T_pwm/20)"),
+            _num("dt_sim", None, step=1e-7, mn=1e-7, mx=1e-4,
+                 suffix="s (None=T_pwm/20)",
+                 label=["Δt", html.Sub("sim")]),
         ]),
 
         _section("Current loop", [
@@ -150,16 +192,16 @@ CONFIG_PANEL = html.Div(className="alva-panel", children=[
                 html.Label("PI tuning"),
                 dcc.RadioItems(id="pi_mode",
                                className="alva-radio",
-                               options=[{"label": " Auto (bw_hz)", "value": "auto"},
-                                        {"label": " Manual (Kp, Ki)", "value": "manual"},
-                                        {"label": " Modulus Optimum (f_pwm)",
-                                         "value": "modulus_optimum"}],
-                               value="auto",
+                               options=[{"label": " Modulus Optimum (f_pwm)",
+                                         "value": "modulus_optimum"},
+                                        {"label": " Manual (Kp, Ki)", "value": "manual"}],
+                               value="modulus_optimum",
                                labelStyle={"display": "block"}),
             ]),
-            _num("bw_hz", 1000.0, step=50, mn=100.0, mx=5000.0, suffix="Hz"),
-            _num("Kp", round(kp0, 6), step=1e-3, mn=0.0, suffix="V/A",  disabled=True),
-            _num("Ki", round(ki0, 6), step=1e-3, mn=0.0, suffix="V/(A·s)", disabled=True),
+            _num("Kp", round(kp0, 6), step=1e-3, mn=0.0,
+                 suffix="V/A",     disabled=True, label=_sub("K", "p")),
+            _num("Ki", round(ki0, 6), step=1e-3, mn=0.0,
+                 suffix="V/(A·s)", disabled=True, label=_sub("K", "i")),
         ]),
 
         html.Button("Simulate", id="simulate", n_clicks=0,
@@ -169,21 +211,33 @@ CONFIG_PANEL = html.Div(className="alva-panel", children=[
 ])
 
 
-PLOT_PANEL = dcc.Loading(html.Div([
-    dcc.Graph(id="fig_tracking"),
-    dcc.Graph(id="fig_pi"),
-    dcc.Graph(id="fig_fft"),
-    dcc.Graph(id="fig_iabc"),
-    dcc.Graph(id="fig_vabc"),
-    dcc.Graph(id="fig_duties"),
-    dcc.Graph(id="fig_enc"),
-    dcc.Graph(id="fig_speed"),
-], className="alva-plot-panel"), type="default", color="#F76E5C")
+PLOT_PANEL = dcc.Loading(
+    html.Div([
+        dcc.Graph(id="fig_tracking", mathjax=True),
+        dcc.Graph(id="fig_pi",       mathjax=True),
+        dcc.Graph(id="fig_fft",      mathjax=True),
+        dcc.Graph(id="fig_iabc",     mathjax=True),
+        dcc.Graph(id="fig_vabc",     mathjax=True),
+        dcc.Graph(id="fig_duties",   mathjax=True),
+        dcc.Graph(id="fig_enc",      mathjax=True),
+        dcc.Graph(id="fig_speed",    mathjax=True),
+    ], className="alva-plot-panel"),
+    type="default", color="#F76E5C",
+    # Without this, dcc.Loading's wrapper div collapses to content width and
+    # the .alva-plot-panel `flex: 1` inside it has nothing to expand into.
+    parent_style={"flex": "1 1 auto", "minWidth": "0", "display": "flex",
+                  "flexDirection": "column"},
+)
 
 
 app = Dash(__name__,
            title="SlimTorq Simulator — Alva Industries",
-           assets_folder=ASSETS_DIR)
+           assets_folder=ASSETS_DIR,
+           # Load MathJax explicitly so $…$ in Plotly titles / axes / trace
+           # names renders reliably (Plotly 6 + Dash 4 auto-loader is racy).
+           external_scripts=[
+               "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js",
+           ])
 app.layout = html.Div([CONFIG_PANEL, PLOT_PANEL],
                       style={"display": "flex"})
 
@@ -192,37 +246,32 @@ app.layout = html.Div([CONFIG_PANEL, PLOT_PANEL],
 # Enable/disable PI-tuning inputs based on radio
 # ----------------------------------------------------------------------------
 @app.callback(
-    Output("bw_hz", "disabled"),
     Output("Kp", "disabled"),
     Output("Ki", "disabled"),
     Input("pi_mode", "value"),
 )
 def toggle_pi_inputs(pi_mode: str):
-    # Auto -> bw_hz enabled, Kp/Ki disabled (auto-populated).
-    # Manual -> bw_hz disabled, Kp/Ki enabled.
-    # Modulus Optimum -> all three disabled; Kp/Ki auto-populated from f_pwm.
-    if pi_mode == "auto":
-        return False, True, True
+    # Modulus Optimum -> Kp/Ki disabled (auto-populated from f_pwm).
+    # Manual -> Kp/Ki enabled.
     if pi_mode == "manual":
-        return True, False, False
-    return True, True, True  # modulus_optimum
+        return False, False
+    return True, True
 
 
 # ----------------------------------------------------------------------------
-# Auto-populate Kp/Ki when variant / bw_hz / f_pwm changes, depending on mode
+# Auto-populate Kp/Ki when variant or f_pwm changes (modulus-optimum mode)
 # ----------------------------------------------------------------------------
 @app.callback(
     Output("Kp", "value"),
     Output("Ki", "value"),
     Input("variant", "value"),
-    Input("bw_hz", "value"),
     Input("f_pwm", "value"),
     Input("pi_mode", "value"),
 )
-def suggest_pi_gains(variant, bw_hz, f_pwm, pi_mode):
+def suggest_pi_gains(variant, f_pwm, pi_mode):
     if pi_mode == "manual":
         return no_update, no_update
-    gains = _gains_for_mode(variant, pi_mode, bw_hz, f_pwm)
+    gains = _gains_for_mode(variant, pi_mode, f_pwm)
     if gains is None:
         return no_update, no_update
     kp, ki = gains
@@ -270,7 +319,6 @@ def _render_all(df: pl.DataFrame, meta: dict[str, str]):
     State("A3", "value"), State("k3", "value"), State("phi3", "value"),
     State("ts_enc", "value"),
     State("dt_sim", "value"),
-    State("bw_hz", "value"),
     State("t_end", "value"),
     State("t_step", "value"),
     State("t_step_frac", "value"),
@@ -283,7 +331,7 @@ def _render_all(df: pl.DataFrame, meta: dict[str, str]):
 def simulate(n_clicks, variant, f_pwm, t_dead,
              n_bits, theta_offset,
              A1, k1, phi1, A2, k2, phi2, A3, k3, phi3,
-             ts_enc, dt_sim, bw_hz, t_end, t_step, t_step_frac, Tf,
+             ts_enc, dt_sim, t_end, t_step, t_step_frac, Tf,
              pi_mode, Kp, Ki):
     if variant is None:
         return *([no_update] * 8), "no variant selected"
@@ -304,7 +352,6 @@ def simulate(n_clicks, variant, f_pwm, t_dead,
         "A3": float(A3), "k3": int(k3), "phi3": float(phi3),
         "ts_enc":       float(ts_enc),
         "dt_sim":       None if dt_sim is None else float(dt_sim),
-        "bw_hz":        float(bw_hz) if bw_hz is not None else None,
         "t_end":        float(t_end),
         "t_step":       float(t_step),
         "t_step_frac":  float(t_step_frac),
@@ -353,13 +400,10 @@ def simulate(n_clicks, variant, f_pwm, t_dead,
                 t_dead=float(t_dead),
                 dt_sim=None if dt_sim is None else float(dt_sim),
                 Tf=None if Tf is None else float(Tf),
-                bw_hz=float(bw_hz) if bw_hz is not None else 1000.0,
-                Kp=float(Kp) if use_manual else (
-                    modulus_optimum_tuning(motor.R_s, motor.L_s, float(f_pwm))[0]
-                    if pi_mode == "modulus_optimum" else None),
-                Ki=float(Ki) if use_manual else (
-                    modulus_optimum_tuning(motor.R_s, motor.L_s, float(f_pwm))[1]
-                    if pi_mode == "modulus_optimum" else None))
+                Kp=float(Kp) if use_manual else
+                   modulus_optimum_tuning(motor.R_s, motor.L_s, float(f_pwm))[0],
+                Ki=float(Ki) if use_manual else
+                   modulus_optimum_tuning(motor.R_s, motor.L_s, float(f_pwm))[1])
         except Exception as e:
             return *([no_update] * 8), f"error: {e}"
 

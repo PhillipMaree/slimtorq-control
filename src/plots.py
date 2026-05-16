@@ -24,6 +24,14 @@ def _title(meta: dict[str, str], suffix: str = "") -> str:
     return f"{base} — {suffix}" if suffix else base
 
 
+# Shared layout to give every figure a horizontal legend above the plot and
+# minimal side margins, so the x-axis runs almost to the panel edge.
+_FIG_MARGIN = dict(l=55, r=20, t=80, b=50)
+_FIG_LEGEND = dict(orientation="h",
+                   yanchor="bottom", y=1.02,
+                   xanchor="right",  x=1.0)
+
+
 def figure_tracking(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
     r"""T_L_ref vs T_e, i_q^* vs i_q, i_d^* vs i_d on a 3-row shared-x subplot."""
     t = _t_ms(df)
@@ -43,7 +51,8 @@ def figure_tracking(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
     fig.add_trace(go.Scatter(x=t, y=df["i_d_meas"], name=r"$i_d$"), row=3, col=1)
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$", row=3, col=1)
     fig.update_layout(title=_title(meta, "Tracking"), height=700,
-                      hovermode="x unified")
+                      hovermode="x unified",
+                      margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig
 
 
@@ -87,7 +96,8 @@ def figure_pi_performance(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
         title=fr"{_title(meta, 'PI performance')}  —  "
               fr"$K_p={kp}\,\mathrm{{V/A}},\; K_i={ki}\,\mathrm{{V/(A\cdot s)}}$  "
               f"[{pi_mode}]",
-        height=720, hovermode="x unified")
+        height=720, hovermode="x unified",
+        margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig
 
 
@@ -116,7 +126,8 @@ def figure_fft_omega(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
     fig.update_layout(
         title=fr"{_title(meta, r'$\omega_m^{meas}$ spectrum')}  "
               f"(steady-state window: last {100*(n-start)//n}% of samples)",
-        height=450, hovermode="x")
+        height=450, hovermode="x",
+        margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig
 
 
@@ -130,7 +141,8 @@ def figure_phase_currents(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$")
     fig.update_yaxes(title_text=r"$\text{phase current } [\mathrm{A}]$")
     fig.update_layout(title=_title(meta, "Phase currents (abc)"),
-                      height=450, hovermode="x unified")
+                      height=450, hovermode="x unified",
+                      margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig
 
 
@@ -157,7 +169,8 @@ def figure_phase_voltages(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$")
     fig.update_yaxes(title_text=r"$\text{phase voltage } [\mathrm{V}]$")
     fig.update_layout(title=_title(meta, "Phase voltages: FOC refs vs post-inverter"),
-                      height=500, hovermode="x unified")
+                      height=500, hovermode="x unified",
+                      margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig
 
 
@@ -175,7 +188,8 @@ def figure_duties(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$")
     fig.update_yaxes(title_text=r"$\text{duty}$", range=[-0.05, 1.05])
     fig.update_layout(title=_title(meta, "PWM duty cycles"),
-                      height=400, hovermode="x unified")
+                      height=400, hovermode="x unified",
+                      margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig
 
 
@@ -200,7 +214,8 @@ def figure_encoder_error(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$")
     fig.update_yaxes(title_text=r"$\mathrm{wrap}(\theta_m^{\,true} - \theta_m^{\,meas}) \;[\mathrm{mrad}]$")
     fig.update_layout(title=_title(meta, "Encoder error (shortest-distance)"),
-                      height=450, hovermode="x unified")
+                      height=450, hovermode="x unified",
+                      margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig
 
 
@@ -238,5 +253,6 @@ def figure_speed_and_saturation(df: pl.DataFrame, meta: dict[str, str]) -> go.Fi
                      ticktext=[r"$\mathrm{sat}_d$", r"$\mathrm{sat}_q$"], row=2, col=1)
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$", row=2, col=1)
     fig.update_layout(title=_title(meta, "Speed tracking + PI saturation"),
-                      height=550, hovermode="x unified")
+                      height=550, hovermode="x unified",
+                      margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig

@@ -103,8 +103,14 @@ def read_metadata(path: Path) -> dict[str, str]:
 # ----------------------------------------------------------------------------
 def default_TL_ref(motor: PmsmModel, t_end: float, t_step: float,
                    frac: float) -> TLRef:
-    """Default TL_ref: zero until t_step, then step to frac·te_cont_cat, hold to t_end."""
-    amp = frac * motor.te_cont_cat
+    """Default TL_ref: zero until t_step, then step to frac · te_peak_1s, hold to t_end.
+
+    `frac` is interpreted against the catalog's 1-second peak torque so the
+    user-facing knob has the meaning "fraction of max torque the motor can
+    briefly produce." Defaults around 0.5-0.7 are realistic; values > 1.0 push
+    past the catalog peak and will hit the FOC's vector-saturation limit.
+    """
+    amp = frac * motor.te_peak_1s
     return TLRef(ref=np.array([0.0, amp]), t=np.array([t_step, t_end]))
 
 
