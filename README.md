@@ -6,7 +6,7 @@ modulus-optimum / pole-zero-cancellation current-loop tuning, and an
 interactive **Dash UI** that drives the simulation and renders the results
 from a Polars/Parquet cache.
 
-The motor is parameterised from [catalog.yaml](catalog.yaml) against the Alva
+The motor is parameterised from [config/catalog.yaml](config/catalog.yaml) against the Alva
 **SlimTorq** lineup (9 families × ~12 winding configurations ≈ 86 entries).
 
 ## Signal chain
@@ -107,7 +107,7 @@ Between FOC ticks the v_*_ref values are held by ZOH and fed into the PWM every 
 
 ```mermaid
 graph TD
-    catalog["catalog.yaml"]
+    catalog["config/catalog.yaml"]
     model["model.py
     Pydantic schema +
     load_catalog()"]
@@ -165,8 +165,8 @@ graph TD
 |---|---|
 | [modelica/Alva.mo](modelica/Alva.mo) | `SlotlessPMSM_abc`: surface-PM motor, abc external interface, dq internal dynamics on the **true** rotor angle, optional 6th-electrical-harmonic torque ripple. |
 | [modelica/build_fmu.mos](modelica/build_fmu.mos) | `omc` build script producing `SlotlessPMSM_abc.fmu`. |
-| [catalog.yaml](catalog.yaml) | Nested family → variant → winding data. Every cell is `{unit, value}` so units are explicit. |
-| [src/model.py](src/model.py) | All Pydantic v2 models — catalog-parsing schema, simulation-facing flat types (`PmsmModel`, `EncoderConfig`, `FocConfig`, `InverterConfig`, `TLRef`), and the catalog loader. `python -m model` cross-checks each variant against its catalog continuous-torque. |
+| [config/catalog.yaml](config/catalog.yaml) | Nested family → variant → winding data. Every cell is `{unit, value}` so units are explicit. |
+| [src/model.py](src/model.py) | All Pydantic v2 models — catalog-parsing schema, the `MotorSku` + `decode_sku` serial decoder (catalog REV1.8 p.28), the `CatalogMotor` connection-aware computed-field bridge (R_s / L_s / ψ_m / J per p.35), the simulation-facing flat types (`PmsmModel`, `EncoderConfig`, `FocConfig`, `InverterConfig`, `TLRef`), and the catalog loader. `python -m model` exercises the decoder, prints the STM-75-20-L-4Y worked example, then cross-checks every variant against its catalog continuous-torque. |
 | [src/tuning.py](src/tuning.py) | Pure functions `auto_pi_gains_from_bw(R, L, bw_hz)` (pole-zero cancellation) and `modulus_optimum_tuning(R, L, f_pwm)` (Leonhard / Schroeder MO). |
 | [src/transform.py](src/transform.py) | Amplitude-invariant Clarke / Park + composed `abc_to_dq`, `dq_to_abc`. `python transform.py` round-trip self-test. |
 | [src/controller.py](src/controller.py) | `PIController` (parallel-form PI with split unsaturated/integrate API for shared anti-windup), `FOCController` (Clarke → Park → 2× PI → **dq decoupling + BEMF feedforward** → **vector saturation** → InvPark → InvClarke). |
@@ -253,18 +253,60 @@ dθ_m/dt = ω_m
 i_q_ref = T_e_ref / (1.5 · p · ψ_m)
 ```
 
-## Datasheet → dq conversions
+## Motor serial decoding (catalog REV1.8 p.28)
 
-Catalog values are line-to-line and Arms-referenced. The loader converts:
+Every SlimTorq motor is identified by a nine-segment serial number
+(`MotorSku` + `decode_sku` in [src/model.py](src/model.py)):
 
 ```
-R_s     = R_LL  / 2                                phase (line-to-neutral)
-L_s     = L_LL_uH·1e-6 / 2                         phase inductance [H]
-ψ_m     = K_t   / (1.5·p·√2)                       amp-inv Clarke ⇒ i_q_peak = √2·i_arms
-J       = inertia_gcm² · 1e-7                      [kg·m²]
-p       = pole_pairs                               from catalog common
-Vdc     = motor.rated_voltage (default)            UI-overridable
+STM-130-27-L-4Y-A-18A-A0-001
+ │   │   │  │  │  │  │   │  │
+ │   │   │  │  │  │  │   │  └── unique_id     3 digits
+ │   │   │  │  │  │  │   └───── sensor        Temp + Position (A–Z, "0" = none)
+ │   │   │  │  │  │  └───────── cable         AWG(1-99) + Type(A–Z)
+ │   │   │  │  │  └──────────── terminal      A = Axial / R = Radial
+ │   │   │  │  └─────────────── winding       series_turns + Y(star) / D(delta)
+ │   │   │  └────────────────── variant       L = Lite / M = Max
+ │   │   └───────────────────── axial_length  Stator length (mm)
+ │   └───────────────────────── stator_od     Stator OD (mm)
+ └───────────────────────────── series        STM = SlimTorq Motor
 ```
+
+The short five-segment form (`STM-75-20-L-4Y`) is the catalog key and the
+filename stem for cached parquets in [output/](output/). The
+winding code's connection letter (`Y` vs `D`) drives the phase-impedance
+decomposition below.
+
+## Datasheet → dq conversions (catalog REV1.8 p.35)
+
+Catalog values are line-to-line and Arms-referenced. `CatalogMotor` in
+[src/model.py](src/model.py) derives each phase-domain parameter as a
+`@computed_field` whose docstring carries the page-35 formula:
+
+```
+                                  ┌─ Star  (Y):  R_phase = 0.5 · R_LL
+R_s  [Ohm]   ── from R_LL   ──────┤
+                                  └─ Delta (D):  R_phase = 1.5 · R_LL
+
+                                  ┌─ Star  (Y):  L_phase = 0.5 · L_LL · 1e-6
+L_s  [H]     ── from L_LL_uH ─────┤
+                                  └─ Delta (D):  L_phase = 1.5 · L_LL · 1e-6
+
+ψ_m  [Wb]    = K_T / (1.5 · p · √2)        amp-inv Clarke ⇒ i_q_peak = √2·I_q_rms
+J    [kg·m²] = J_gcm² · 1e-7
+p            = common.pole_pairs
+Vdc  [V]     = motor.rated_voltage (default; UI-overridable)
+```
+
+Worked example — **STM-75-20-L-4Y** (Star, 4 series turns, Lite):
+`R_LL=0.457 Ω, L_LL=15.4 µH, K_T=0.109 Nm/Arms, p=18, J_gcm²=620` →
+`R_s=0.2285 Ω, L_s=7.7 µH, ψ_m=2.85 mWb, J=6.2e-5 kg·m²`.
+
+**Note — Delta windings.** Phase impedance is the physical winding value
+(`1.5·R_LL`, `1.5·L_LL`), not a Y-equivalent transform. This is the literal
+page-35 definition; if a future revision of the dq sim wants star-equivalent
+quantities for delta motors, that conversion belongs downstream of
+`CatalogMotor`, not inside its derivations.
 
 ## Usage
 
@@ -310,7 +352,8 @@ Metadata (`slimtorq.*` keys): `schema_version`, `params_hash`, `params_json`, `f
 ```
 slimtorq-control/
 ├── README.md
-├── catalog.yaml                       Alva SlimTorq motor data
+├── config/
+│   └── catalog.yaml                   Alva SlimTorq motor data
 ├── pyproject.toml                     deps: fmpy, polars, plotly, dash, pyarrow, …
 ├── alva/docs/                         Alva product PDFs
 ├── modelica/

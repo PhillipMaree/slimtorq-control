@@ -1,40 +1,33 @@
 """Pydantic data models + catalog loader for the FOC sim.
 
-Two layers:
-1. Catalog-parsing models mirror catalog.yaml exactly. They exist so
-   `CatalogFile.model_validate(yaml.safe_load(...))` produces type-checked
-   Python objects without ad-hoc dict-walking.
-2. Simulation-facing models (PmsmModel, EncoderConfig, FocConfig, TLRef) are
-   the flat shapes the runtime code consumes. PmsmModel is built by flattening
-   one (family, variant, winding) triple from the catalog at load time.
+Three layers:
+
+1. Catalog-parsing models (CatalogFile, FamilySpec, VariantSpec, WindingSpec,
+   ...) mirror catalog.yaml exactly so `CatalogFile.model_validate(...)`
+   yields type-checked Python without dict-walking.
+2. MotorSku decodes a SlimTorq serial number per catalog REV1.8 page 28.
+   CatalogMotor takes raw catalog values + a decoded SKU and derives the
+   electrical / mechanical phase-domain parameters via @computed_field, each
+   one carrying its catalog page-35 formula in its docstring.
+3. PmsmModel is the flat sim-facing shape consumed by the runtime
+   (controller, simulator, debug scripts). For catalog motors it is produced
+   by CatalogMotor.to_pmsm_model(); for synthetic motors (debug_foc.py) it
+   is constructed directly with explicit R_s / L_s / psi_m / J.
 
 The catalog loader (load_catalog, _build_pmsm_model, validate) lives at the
 bottom of the file. `python -m model` runs the cross-check.
-
-Catalog conversions
--------------------
-- Pole pairs:           p     = common.pole_pairs           (already / 2 in catalog)
-- Phase (line-to-neutral) impedance from line-to-line:
-    R_s [Ohm] = R_LL / 2
-    L_s [H]   = L_LL_uH * 1e-6 / 2
-  Valid for both Y and Delta windings expressed in the equivalent-star form
-  the dq model uses. (For Delta, the delta -> equivalent-Y transform gives
-  R_Y = R_delta_branch/3 and R_delta_branch = 1.5*R_LL, so R_Y = R_LL/2.)
-- PM flux linkage from Kt:
-    psi_m = Kt / (1.5 * p * sqrt(2))
-  Amplitude-invariant Clarke preserves phase peaks: iq_peak = sqrt(2)*i_arms,
-  and Te = 1.5*p*psi_m*iq_peak = Kt*i_arms.
-- Rotor inertia: J [kg.m^2] = inertia_gcm2 * 1e-7.
 """
 
 from __future__ import annotations
 
 import math
+import re
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 # ---------- Reusable cell shape (every {unit, value} in catalog.yaml) ----------
@@ -144,6 +137,196 @@ class CatalogFile(BaseModel):
     motors: list[FamilySpec]
 
 
+# ---------- Serial-number decoder (catalog REV1.8 page 28) ----------
+#
+# A full SlimTorq serial decomposes into nine segments:
+#
+#     STM-130-27-L-4Y-A-18A-A0-001
+#     |   |   |  |  |  |  |   |  |
+#     |   |   |  |  |  |  |   |  +-- Unique Identifier         (3 digits)
+#     |   |   |  |  |  |  |   +----- Sensor Options            (Temp+Position, 2 chars; "0" = none)
+#     |   |   |  |  |  |  +--------- Cable Gauge & Type        (AWG(1-99) + Type(A-Z))
+#     |   |   |  |  |  +------------ Terminal Option           (A = Axial, R = Radial)
+#     |   |   |  |  +--------------- Winding Option            (Series Turns + Star(Y)/Delta(D))
+#     |   |   |  +------------------ Motor Variant             (L = Lite, M = Max)
+#     |   |   +--------------------- Axial Length / Stator Length (mm)
+#     |   +------------------------- Diameter / Stator OD     (mm)
+#     +----------------------------- Motor Series              (STM = SlimTorq Motor)
+#
+# The short form `STM-75-20-L-4Y` (first five segments) is accepted; the
+# trailing four segments are optional and default to None when absent.
+
+_SKU_PATTERN = re.compile(
+    r"^STM-(\d+)-(\d+)-([LM])-(\d+)([YD])"
+    r"(?:-([AR])-(\d+[A-Z])-([A-Z0-9]{2})-(\d{3}))?$"
+)
+
+
+class MotorSku(BaseModel):
+    """Structured form of a SlimTorq serial number (catalog REV1.8 page 28)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    series: Literal["STM"]
+    stator_od_mm: int = Field(gt=0)
+    axial_length_mm: int = Field(gt=0)
+    variant: Literal["L", "M"]
+    series_turns: int = Field(gt=0)
+    connection: Literal["Y", "D"]
+    terminal: Literal["A", "R"] | None = None
+    cable: str | None = None
+    sensor: str | None = None
+    unique_id: str | None = None
+
+    @property
+    def family_name(self) -> str:
+        """Catalog family name, e.g. "SlimTorq 75-20"."""
+        return f"SlimTorq {self.stator_od_mm}-{self.axial_length_mm}"
+
+    @property
+    def variant_sku(self) -> str:
+        """Variant SKU as stored in catalog.yaml, e.g. "STM-75-20-L"."""
+        return f"{self.series}-{self.stator_od_mm}-{self.axial_length_mm}-{self.variant}"
+
+    @property
+    def winding_code(self) -> str:
+        """Winding code as stored in catalog.yaml, e.g. "4Y"."""
+        return f"{self.series_turns}{self.connection}"
+
+    @property
+    def canonical_name(self) -> str:
+        """Catalog dict key, e.g. "STM-75-20-L-4Y" — also used as filename stem."""
+        return f"{self.variant_sku}-{self.winding_code}"
+
+
+def decode_sku(s: str) -> MotorSku:
+    """Parse a SlimTorq SKU string into a MotorSku.
+
+    Accepts either the short five-segment form (STM-75-20-L-4Y) or the full
+    nine-segment serial (STM-130-27-L-4Y-A-18A-A0-001).
+    """
+    m = _SKU_PATTERN.match(s.strip())
+    if m is None:
+        msg = f"unrecognised SlimTorq SKU: {s!r}"
+        raise ValueError(msg)
+    od, ax, var, turns, conn, term, cable, sensor, uid = m.groups()
+    return MotorSku(
+        series="STM",
+        stator_od_mm=int(od),
+        axial_length_mm=int(ax),
+        variant=var,
+        series_turns=int(turns),
+        connection=conn,
+        terminal=term,
+        cable=cable,
+        sensor=sensor,
+        unique_id=uid,
+    )
+
+
+# ---------- Catalog-input model with page-35 derivations ----------
+SQRT2 = math.sqrt(2.0)
+UH_TO_H = 1e-6  # micro-henries -> henries
+GCM2_TO_KGM2 = 1e-7  # g·cm^2 -> kg·m^2 (1e-3 kg * 1e-4 m^2)
+
+
+class CatalogMotor(BaseModel):
+    """Raw catalog inputs + decoded SKU; derives phase-domain parameters.
+
+    All derivations (R_s, L_s, psi_m, J) live below as @computed_field
+    properties whose docstrings cite the formula in catalog REV1.8 page 35.
+    Call `.to_pmsm_model()` to obtain the flat PmsmModel the runtime expects.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    sku: MotorSku
+    # Raw catalog values, units exactly as stored in catalog.yaml
+    R_LL: float  # line-to-line resistance     [Ohm]
+    L_LL_uH: float  # line-to-line inductance     [uH]
+    K_T: float  # torque constant             [Nm / Arms]
+    p: int  # pole pairs                  [-]
+    J_gcm2: float  # rotor inertia               [g·cm^2]
+    rated_voltage: float  # [V]
+    i_cont: float  # [Arms]
+    te_cont_cat: float  # [Nm]
+    te_peak_1s: float  # [Nm]
+    torque_ripple_pct: float = 0.0  # [%]
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def R_s(self) -> float:
+        """Phase resistance [Ohm].
+
+        Catalog REV1.8 page 35 — the line-to-line measurement decomposes
+        by winding connection:
+
+            Star  (Y):  R_phase = 0.5 * R_LL
+            Delta (D):  R_phase = 1.5 * R_LL
+        """
+        factor = 1.5 if self.sku.connection == "D" else 0.5
+        return factor * self.R_LL
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def L_s(self) -> float:
+        """Phase inductance [H].
+
+        Same star/delta decomposition as R_s (catalog page 35), with an
+        additional μH -> H unit conversion (factor 1e-6).
+        """
+        factor = 1.5 if self.sku.connection == "D" else 0.5
+        return factor * self.L_LL_uH * UH_TO_H
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def psi_m(self) -> float:
+        """Permanent-magnet flux linkage [Wb].
+
+        Derivation from the PMSM torque equation in the amplitude-invariant
+        dq frame:
+
+            T_e = (3/2) * p * psi_m * i_q_peak                            (1)
+
+        The catalog torque constant K_T (page 35) is defined per RMS current:
+
+            K_T  =  T_e / I_q_rms      [Nm / Arms]                        (2)
+
+        Amplitude-invariant Clarke gives i_q_peak = sqrt(2) * I_q_rms, so
+        substituting into (1) and combining with (2):
+
+            psi_m = K_T / (1.5 * p * sqrt(2)).
+        """
+        return self.K_T / (1.5 * self.p * SQRT2)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def J(self) -> float:
+        """Rotor inertia [kg·m^2].
+
+        Catalog stores rotational_inertia in g·cm^2.
+        1 g·cm^2 = 1e-3 kg * 1e-4 m^2 = 1e-7 kg·m^2.
+        """
+        return self.J_gcm2 * GCM2_TO_KGM2
+
+    def to_pmsm_model(self) -> PmsmModel:
+        """Materialise the flat sim-facing PmsmModel."""
+        return PmsmModel(
+            family=self.sku.family_name,
+            name=self.sku.canonical_name,
+            R_s=self.R_s,
+            L_s=self.L_s,
+            psi_m=self.psi_m,
+            p=self.p,
+            J=self.J,
+            rated_voltage=self.rated_voltage,
+            i_cont=self.i_cont,
+            te_cont_cat=self.te_cont_cat,
+            te_peak_1s=self.te_peak_1s,
+            torque_ripple_pct=self.torque_ripple_pct,
+        )
+
+
 # ---------- Simulation-facing flat model ----------
 class PmsmModel(BaseModel):
     """One concrete motor (family + variant + winding flattened).
@@ -239,32 +422,32 @@ class TLRef(BaseModel):
 
 
 # ---------- Catalog loader ----------
-SQRT2 = math.sqrt(2.0)
-DEFAULT_CATALOG_PATH = Path(__file__).resolve().parent.parent / "catalog.yaml"
+DEFAULT_CATALOG_PATH = Path(__file__).resolve().parent.parent / "config" / "catalog.yaml"
 
 
 def _build_pmsm_model(family: FamilySpec, variant: VariantSpec, winding: WindingSpec) -> PmsmModel:
-    """Flatten one (family, variant, winding) triple into a PmsmModel."""
-    name = f"{variant.sku}-{winding.winding_type}"
-    p = family.common.pole_pairs
-    R_s = winding.line_to_line_resistance.value / 2.0
-    L_s = winding.line_to_line_inductance.value * 1e-6 / 2.0
-    psi_m = winding.torque_constant.value / (1.5 * p * SQRT2)
-    J = variant.mechanical.rotational_inertia.value * 1e-7
-    return PmsmModel(
-        family=family.family,
-        name=name,
-        R_s=R_s,
-        L_s=L_s,
-        psi_m=psi_m,
-        p=p,
-        J=J,
+    """Flatten one (family, variant, winding) triple into a PmsmModel.
+
+    The serial number `f"{variant.sku}-{winding.winding_type}"` is decoded
+    into a MotorSku; raw catalog values are copied into a CatalogMotor,
+    which derives R_s / L_s / psi_m / J per catalog REV1.8 page 35 via its
+    @computed_field properties; the result is then converted to the flat
+    PmsmModel the runtime consumes.
+    """
+    sku = decode_sku(f"{variant.sku}-{winding.winding_type}")
+    return CatalogMotor(
+        sku=sku,
+        R_LL=winding.line_to_line_resistance.value,
+        L_LL_uH=winding.line_to_line_inductance.value,
+        K_T=winding.torque_constant.value,
+        p=family.common.pole_pairs,
+        J_gcm2=variant.mechanical.rotational_inertia.value,
         rated_voltage=float(family.common.rated_voltage.value),
         i_cont=winding.max_continuous_current.value,
         te_cont_cat=variant.performance_envelope.continuous_torque.value,
         te_peak_1s=variant.performance_envelope.peak_torque_1s.value,
         torque_ripple_pct=variant.performance_envelope.spatial_harmonic_torque_ripple.value,
-    )
+    ).to_pmsm_model()
 
 
 def load_catalog(path: Path = DEFAULT_CATALOG_PATH) -> dict[str, PmsmModel]:
@@ -280,13 +463,73 @@ def predicted_continuous_torque(m: PmsmModel) -> float:
     return 1.5 * m.p * m.psi_m * iq_peak
 
 
-def validate() -> None:
-    """Cross-check every loaded variant: predicted Kt*i_cont vs catalog Te.
+def _validate_decoder() -> None:
+    """Smoke-test the SKU decoder on a few representative serial numbers."""
+    cases: list[tuple[str, dict[str, object]]] = [
+        ("STM-75-20-L-4Y", {"connection": "Y", "series_turns": 4, "variant": "L", "stator_od_mm": 75, "axial_length_mm": 20}),
+        ("STM-75-20-L-8D", {"connection": "D", "series_turns": 8, "variant": "L"}),
+        ("STM-130-27-M-2Y", {"connection": "Y", "series_turns": 2, "variant": "M", "stator_od_mm": 130}),
+        ("STM-130-27-L-4Y-A-18A-A0-001", {"terminal": "A", "cable": "18A", "sensor": "A0", "unique_id": "001"}),
+    ]
+    print("Decoder round-trip:")
+    for raw, expected in cases:
+        decoded = decode_sku(raw)
+        for k, v in expected.items():
+            actual = getattr(decoded, k)
+            assert actual == v, f"{raw}: expected {k}={v!r}, got {actual!r}"
+        canonical_expected = "-".join(raw.split("-")[:5])
+        assert decoded.canonical_name == canonical_expected, f"canonical_name mismatch for {raw}"
+        print(f"  OK  {raw:32s}  -> {decoded.canonical_name}")
 
-    Tolerance is 15% because for the largest motors the catalog's Continuous
-    Torque column is thermally derated below the electromagnetic Kt*i_cont
-    product -- a real spec-sheet inconsistency, not a conversion bug.
+    rejects = ("foo", "STM-75-20-L", "STM-75-20-X-4Y", "stm-75-20-l-4y")
+    for bad in rejects:
+        try:
+            decode_sku(bad)
+        except ValueError:
+            print(f"  OK  rejected {bad!r}")
+        else:
+            msg = f"expected ValueError for {bad!r}"
+            raise AssertionError(msg)
+    print()
+
+
+def _validate_worked_example() -> None:
+    """Print derived parameters for STM-75-20-L-4Y and assert numerics.
+
+    Reference values come from catalog REV1.8:
+      - family common block (rated_voltage, pole_pairs) for SlimTorq 75-20
+      - mechanical block (rotational_inertia) for STM-75-20-L
+      - winding block (R_LL, L_LL, K_T, i_cont) for the 4Y winding
+    Derivations follow page 35.
     """
+    motor = load_catalog()["STM-75-20-L-4Y"]
+    print("Worked example: STM-75-20-L-4Y (Star, 4 series turns, Lite variant)")
+    print(f"  p              = {motor.p}")
+    print(f"  R_s            = {motor.R_s:.4f}  Ohm        (= 0.5 * R_LL,            Star,  p.35)")
+    print(f"  L_s            = {motor.L_s * 1e6:.2f}    uH         (= 0.5 * L_LL * 1e-6,     Star,  p.35)")
+    print(f"  psi_m          = {motor.psi_m * 1e3:.4f}  mWb        (= K_T / (1.5 * p * sqrt(2)))")
+    print(f"  J              = {motor.J:.3e} kg.m^2     (= J_gcm2 * 1e-7)")
+    print(f"  rated_voltage  = {motor.rated_voltage}    V")
+    print(f"  i_cont         = {motor.i_cont}   Arms")
+
+    assert math.isclose(motor.R_s, 0.5 * 0.457, rel_tol=1e-9), motor.R_s
+    assert math.isclose(motor.L_s, 0.5 * 15.4e-6, rel_tol=1e-9), motor.L_s
+    assert math.isclose(motor.psi_m, 0.109 / (1.5 * 18 * SQRT2), rel_tol=1e-9), motor.psi_m
+    assert math.isclose(motor.J, 620 * GCM2_TO_KGM2, rel_tol=1e-9), motor.J
+    print("  all derivations match catalog REV1.8 p.35\n")
+
+
+def validate() -> None:
+    """End-to-end self-check: decoder, worked example, full catalog cross-check.
+
+    The catalog cross-check tolerance is 15% because for the largest motors
+    the catalog's Continuous Torque column is thermally derated below the
+    electromagnetic Kt*i_cont product -- a real spec-sheet inconsistency,
+    not a conversion bug.
+    """
+    _validate_decoder()
+    _validate_worked_example()
+
     catalog = load_catalog()
     print(f"Loaded {len(catalog)} variant(s) from {DEFAULT_CATALOG_PATH.name}\n")
     print(f"{'variant':22s}  {'predicted Te':>12s}  {'catalog Te':>10s}  {'err':>7s}")

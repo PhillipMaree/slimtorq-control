@@ -150,7 +150,7 @@ CONFIG_PANEL = html.Div(
                     [
                         # Vdc is derived from the selected variant's catalog rated_voltage
                         # at runtime (motor.rated_voltage); not a UI input.
-                        _num("f_pwm", 20000.0, step=1000.0, mn=1000.0, mx=100000.0, suffix="Hz", label=_sub("f", "pwm")),
+                        _num("f_pwm", 20000.0, step=1000.0, mn=1000.0, mx=50000.0, suffix="Hz", label=_sub("f", "pwm")),
                         _num("t_dead", 1.5e-6, step=1e-7, mn=0.0, mx=5e-6, suffix="s", label=_sub("t", "dead")),
                     ],
                 ),
@@ -347,7 +347,31 @@ def _render_all(df: pl.DataFrame, meta: dict[str, str]):
 def simulate(n_clicks, variant, f_pwm, t_dead, n_bits, theta_offset, A1, k1, phi1, A2, k2, phi2, A3, k3, phi3, ts_enc, dt_sim, t_end, t_step, t_step_frac, Tf, pi_mode, Kp, Ki):
     if variant is None:
         return *([no_update] * 8), "no variant selected"
-    if t_step is None or t_end is None or t_step >= t_end:
+    # Dash returns None for any numeric input whose value is outside [min, max].
+    # Report which fields are out of range instead of crashing on float(None).
+    required = {
+        "f_pwm": f_pwm,
+        "t_dead": t_dead,
+        "n_bits": n_bits,
+        "theta_offset": theta_offset,
+        "A1": A1,
+        "k1": k1,
+        "phi1": phi1,
+        "A2": A2,
+        "k2": k2,
+        "phi2": phi2,
+        "A3": A3,
+        "k3": k3,
+        "phi3": phi3,
+        "ts_enc": ts_enc,
+        "t_end": t_end,
+        "t_step": t_step,
+        "t_step_frac": t_step_frac,
+    }
+    missing = [k for k, v in required.items() if v is None]
+    if missing:
+        return *([no_update] * 8), f"input(s) empty or out of range: {', '.join(missing)}"
+    if t_step >= t_end:
         return *([no_update] * 8), f"t_step ({t_step}) must be < t_end ({t_end})"
 
     motor = CATALOG[variant]
