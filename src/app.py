@@ -35,7 +35,7 @@ from tuning import modulus_optimum_tuning
 
 ASSETS_DIR = str(Path(__file__).resolve().parent.parent / "assets")
 _OUTPUT_DIR = Path(__file__).resolve().parent.parent / ".temp"
-_SCHEMA_VERSION = "2"
+_SCHEMA_VERSION = "3"
 
 CATALOG = load_catalog()
 DEFAULT_VARIANT = "STM-75-20-L-4Y"
@@ -313,8 +313,12 @@ PLOT_PANEL = dcc.Loading(
         [
             dcc.Graph(id="fig_tracking", mathjax=True),
             dcc.Graph(id="fig_pi", mathjax=True),
+            dcc.Graph(id="fig_vdq_rt", mathjax=True),
+            dcc.Graph(id="fig_iq_zoom", mathjax=True),
+            dcc.Graph(id="fig_iq_fft", mathjax=True),
             dcc.Graph(id="fig_fft", mathjax=True),
             dcc.Graph(id="fig_iabc", mathjax=True),
+            dcc.Graph(id="fig_iabc_fft", mathjax=True),
             dcc.Graph(id="fig_vabc", mathjax=True),
             dcc.Graph(id="fig_duties", mathjax=True),
             dcc.Graph(id="fig_enc", mathjax=True),
@@ -340,7 +344,7 @@ app = Dash(
         "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js",
     ],
 )
-app.layout = html.Div([CONFIG_PANEL, PLOT_PANEL], style={"display": "flex"})
+app.layout = html.Div([CONFIG_PANEL, PLOT_PANEL], style={"display": "flex", "alignItems": "flex-start"})
 
 
 # ----------------------------------------------------------------------------
@@ -385,8 +389,12 @@ def suggest_pi_gains(variant, f_pwm, pi_mode):
 PLOT_OUTPUTS = (
     Output("fig_tracking", "figure"),
     Output("fig_pi", "figure"),
+    Output("fig_vdq_rt", "figure"),
+    Output("fig_iq_zoom", "figure"),
+    Output("fig_iq_fft", "figure"),
     Output("fig_fft", "figure"),
     Output("fig_iabc", "figure"),
+    Output("fig_iabc_fft", "figure"),
     Output("fig_vabc", "figure"),
     Output("fig_duties", "figure"),
     Output("fig_enc", "figure"),
@@ -399,8 +407,12 @@ def _render_all(df: pl.DataFrame, meta: dict[str, str]):
     return (
         plots.figure_tracking(df, meta),
         plots.figure_pi_performance(df, meta),
+        plots.figure_vdq_roundtrip(df, meta),
+        plots.figure_iq_zoom(df, meta),
+        plots.figure_iq_fft(df, meta),
         plots.figure_fft_omega(df, meta),
         plots.figure_phase_currents(df, meta),
+        plots.figure_iabc_fft(df, meta),
         plots.figure_phase_voltages(df, meta),
         plots.figure_duties(df, meta),
         plots.figure_encoder_error(df, meta),

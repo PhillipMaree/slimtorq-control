@@ -30,7 +30,13 @@ body {
     min-width: 22rem;       /* don't squash the inputs on narrow screens */
     box-sizing: border-box;
     border-right: 1px solid var(--alva-border);
-    height: 100vh;
+    /* Pin the config to the viewport top so it stays put while the page
+       scrolls past the plot column. position: sticky is the simplest path
+       that avoids fighting flex-column min-height math inside dcc.Loading. */
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    max-height: 100vh;
     overflow-y: auto;
     background: var(--alva-bg-panel);
 }
@@ -200,8 +206,9 @@ input[type="radio"] {
 
 .alva-plot-panel {
     flex: 1;                /* fills the remaining 3/4 of the window */
-    overflow-y: auto;
-    height: 100vh;
+    /* The body itself is the scroll container now; the plot panel just lays
+       out its graphs vertically. The config panel uses position: sticky to
+       stay pinned while the body scrolls past these graphs. */
     background: var(--alva-bg);
     padding: 0.75rem 1rem;
     display: flex;

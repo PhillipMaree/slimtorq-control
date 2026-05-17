@@ -17,6 +17,7 @@ measurement they pair with but render dashed. Limit guides (V_max, ±Vdc/2,
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
@@ -159,6 +160,175 @@ def figure_fft_omega(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
     fig.update_layout(
         title=rf"{_title(meta, r'$\omega_m^{meas}$ spectrum')}  "
         f"(steady-state window: last {100 * (n - start) // n}% of samples)",
+        height=450,
+        hovermode="x",
+        margin=_FIG_MARGIN,
+        legend=_FIG_LEGEND,
+    )
+    return fig
+
+
+def _steady_state_window(df: pl.DataFrame) -> tuple[np.ndarray, int, int]:
+    r"""Indices into the trailing 80 % of the trace, matched with figure_fft_omega.
+
+    Returns (t_seconds, start_idx, end_idx) so callers can both slice the data
+    and report the window in titles.
+    """
+    t = df["t"].to_numpy()
+    n = len(t)
+    start = int(0.2 * n)
+    return t, start, n
+
+
+def figure_vdq_roundtrip(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
+    r"""Inverter voltage-preservation sanity check, in the dq frame.
+
+    Reconstructs the *actually applied* dq voltage from the logged post-inverter
+    phase voltages (v_a, v_b, v_c) via Clarke + Park using the measured
+    electrical angle, then plots (v_d^actual - v_d^ref) and
+    (v_q^actual - v_q^ref). The cycle-average of each must be ≈ 0 — non-zero
+    mean implies a scaling or sign-convention bug in the inverter / transforms.
+    The cycle-resolved trace is the PWM ripple seen in the dq frame: the
+    disturbance the current-loop PI is fighting.
+    """
+    t = _t_ms(df)
+    v_a = df["v_a"].to_numpy()
+    v_b = df["v_b"].to_numpy()
+    v_c = df["v_c"].to_numpy()
+    theta_e = df["theta_e_meas"].to_numpy()
+    v_d_ref = df["v_d_ref"].to_numpy()
+    v_q_ref = df["v_q_ref"].to_numpy()
+
+    v_alpha = (2.0 / 3.0) * (v_a - 0.5 * v_b - 0.5 * v_c)
+    v_beta = (v_b - v_c) / np.sqrt(3.0)
+    cos_t = np.cos(theta_e)
+    sin_t = np.sin(theta_e)
+    v_d_act = v_alpha * cos_t + v_beta * sin_t
+    v_q_act = -v_alpha * sin_t + v_beta * cos_t
+
+    err_d = v_d_act - v_d_ref
+    err_q = v_q_act - v_q_ref
+
+    _, start, end = _steady_state_window(df)
+    mean_d = float(np.mean(err_d[start:end]))
+    mean_q = float(np.mean(err_q[start:end]))
+
+    title_d = rf"$v_d^{{\,actual}} - v_d^{{\,ref}} \;[\mathrm{{V}}]\quad (\overline{{\Delta v_d}}={mean_d:+.3g})$"
+    title_q = rf"$v_q^{{\,actual}} - v_q^{{\,ref}} \;[\mathrm{{V}}]\quad (\overline{{\Delta v_q}}={mean_q:+.3g})$"
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.06, subplot_titles=(title_d, title_q))
+    fig.add_trace(go.Scatter(x=t, y=err_d, name=r"$\Delta v_d$", line=_line(0)), row=1, col=1)
+    fig.add_hline(y=0.0, line=dict(width=0.5, color="black"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=t, y=err_q, name=r"$\Delta v_q$", line=_line(1)), row=2, col=1)
+    fig.add_hline(y=0.0, line=dict(width=0.5, color="black"), row=2, col=1)
+    fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$", row=2, col=1)
+    fig.update_layout(title=_title(meta, "dq voltage round-trip (inverter preservation check)"), height=520, hovermode="x unified", margin=_FIG_MARGIN, legend=_FIG_LEGEND)
+    return fig
+
+
+def figure_iq_zoom(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
+    r"""i_q^{meas} zoomed to a few PWM cycles in steady state, with carrier guides.
+
+    The full-horizon i_q trace averages the ripple away. This view shows the
+    triangular ripple at the controller's eyes and overlays vertical guides at
+    each carrier valley (start of each PWM cycle), so the relationship between
+    ripple, carrier phase, and the once-per-cycle FOC tick is visible.
+    """
+    f_pwm = float(meta.get("slimtorq.f_pwm", "20000"))
+    T_pwm = 1.0 / f_pwm
+
+    t = df["t"].to_numpy()
+    iq = df["i_q_meas"].to_numpy()
+    iqr = df["i_q_ref"].to_numpy()
+    n = len(t)
+    if n < 8:
+        fig = go.Figure()
+        fig.update_layout(title="i_q zoom skipped: signal too short")
+        return fig
+
+    end = n
+    start = max(0, end - round(5.0 * T_pwm / (t[1] - t[0])))
+    t_ms = t[start:end] * 1e3
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=t_ms, y=iqr[start:end], name=r"$i_q^{\,*}$", line=_line(1, ref=True)))
+    fig.add_trace(go.Scatter(x=t_ms, y=iq[start:end], name=r"$i_q$", line=_line(1)))
+
+    # Carrier valleys at integer multiples of T_pwm within the window.
+    first_valley = math.ceil(t[start] / T_pwm) * T_pwm
+    last_valley = math.floor(t[end - 1] / T_pwm) * T_pwm
+    k = 0
+    while first_valley + k * T_pwm <= last_valley + 1e-15:
+        v_ms = (first_valley + k * T_pwm) * 1e3
+        fig.add_vline(x=v_ms, line=dict(width=0.5, color="black", dash="dot"))
+        k += 1
+
+    fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$")
+    fig.update_yaxes(title_text=r"$i_q \;[\mathrm{A}]$")
+    fig.update_layout(title=_title(meta, f"i_q zoom (~5 x T_pwm @ f_pwm={f_pwm:g} Hz)"), height=400, hovermode="x unified", margin=_FIG_MARGIN, legend=_FIG_LEGEND)
+    return fig
+
+
+def _fft_log(t: np.ndarray, sig: np.ndarray, start: int) -> tuple[np.ndarray, np.ndarray]:
+    """Trailing-window DC-removed rFFT, magnitude clamped to a log floor."""
+    sig = sig[start:] - np.mean(sig[start:])
+    Ts = float(t[1] - t[0])
+    freqs = np.fft.rfftfreq(len(sig), d=Ts)
+    mag = np.abs(np.fft.rfft(sig)) / max(len(sig), 1)
+    mag = np.maximum(mag, 1e-12)
+    return freqs, mag
+
+
+def figure_iq_fft(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
+    r"""Log-magnitude spectrum of i_q^{meas} (trailing 80 %, DC removed).
+
+    The signal closest to the PWM source. Switching ripple shows up as discrete
+    lines at 2·f_pwm, 4·f_pwm, 6·f_pwm; dead-time shows up at low electrical
+    harmonics (6·f_1, 12·f_1, with f_1 = p·ω_m/2π).
+    """
+    t, start, n = _steady_state_window(df)
+    if n - start < 8:
+        fig = go.Figure()
+        fig.update_layout(title="FFT skipped: signal too short")
+        return fig
+    freqs, mag = _fft_log(t, df["i_q_meas"].to_numpy(), start)
+    f_pwm = float(meta.get("slimtorq.f_pwm", "20000"))
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=freqs, y=mag, name=r"$|\mathrm{FFT}(i_q^{\,meas})|$", line=_line(1)))
+    for kx in (1, 2, 3):
+        fig.add_vline(x=kx * f_pwm, line=dict(width=0.5, color="red", dash="dot"), annotation_text=f"{kx}·f_pwm")
+    fig.update_yaxes(type="log", title_text=r"$|\mathrm{FFT}(i_q^{\,meas})| \;[\mathrm{A,\,normalised}]$")
+    fig.update_xaxes(title_text=r"$f \;[\mathrm{Hz}]$")
+    fig.update_layout(
+        title=rf"{_title(meta, r'$i_q^{meas}$ spectrum')}  (last {100 * (n - start) // n}% of samples)",
+        height=450,
+        hovermode="x",
+        margin=_FIG_MARGIN,
+        legend=_FIG_LEGEND,
+    )
+    return fig
+
+
+def figure_iabc_fft(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
+    r"""Log-magnitude spectrum of i_a (trailing 80 %, DC removed).
+
+    Single phase is enough — the dead-time signature is 5·f_1 / 7·f_1 around
+    the fundamental, and switching ripple appears at f_pwm ± n·f_1.
+    """
+    t, start, n = _steady_state_window(df)
+    if n - start < 8:
+        fig = go.Figure()
+        fig.update_layout(title="FFT skipped: signal too short")
+        return fig
+    freqs, mag = _fft_log(t, df["i_a"].to_numpy(), start)
+    f_pwm = float(meta.get("slimtorq.f_pwm", "20000"))
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=freqs, y=mag, name=r"$|\mathrm{FFT}(i_a)|$", line=_line(0)))
+    fig.add_vline(x=f_pwm, line=dict(width=0.5, color="red", dash="dot"), annotation_text="f_pwm")
+    fig.update_yaxes(type="log", title_text=r"$|\mathrm{FFT}(i_a)| \;[\mathrm{A,\,normalised}]$")
+    fig.update_xaxes(title_text=r"$f \;[\mathrm{Hz}]$")
+    fig.update_layout(
+        title=rf"{_title(meta, r'$i_a$ spectrum')}  (last {100 * (n - start) // n}% of samples)",
         height=450,
         hovermode="x",
         margin=_FIG_MARGIN,

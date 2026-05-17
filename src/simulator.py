@@ -46,6 +46,7 @@ LOG_COLUMNS = (
     "i_c",
     "theta_m_true",
     "theta_m_meas",
+    "theta_e_meas",
     "omega_m_true",
     "omega_m_meas",
     "v_a_ref",
@@ -201,6 +202,7 @@ class Simulator:
             log["i_c"][k] = i_c
             log["theta_m_true"][k] = theta_m_true
             log["theta_m_meas"][k] = theta_m_meas
+            log["theta_e_meas"][k] = theta_e_meas
             log["omega_m_true"][k] = omega_m_true
             log["omega_m_meas"][k] = omega_m_meas
             log["v_a_ref"][k] = v_a_ref
