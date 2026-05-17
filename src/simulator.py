@@ -13,6 +13,13 @@ controller, inverter — and drives them with three clocks:
 Between FOC ticks the FOC's last v_abc_ref output is held by ZOH and fed into
 the Inverter every T_s.
 
+The Inverter has three operating modes selected per `run()` call:
+- "ideal"     : v_abc_ref straight to FMU (smooth voltage source).
+- "average"   : compute PWM duty as in switching mode but emit cycle-average
+                voltages (d - 0.5)*Vdc, skip dead-time. Isolates "scaling /
+                duty bug?" from "switching ripple problem?".
+- "switching" : real carrier compare + dead-time. Default.
+
 Use as a context manager so the FMU is always released:
 
     with Simulator(motor, encoder, controller, inverter) as sim:
@@ -22,6 +29,7 @@ Use as a context manager so the FMU is always released:
 from __future__ import annotations
 
 from types import TracebackType
+from typing import Literal
 
 import numpy as np
 import polars as pl
@@ -29,7 +37,7 @@ import polars as pl
 from controller import FOCController
 from encoder import EncoderMeasurement
 from model import TLRef
-from switching import Inverter, PMSMAbcModel
+from switching import Inverter, LCLFilter, PMSMAbcModel
 
 LOG_COLUMNS = (
     "t",
@@ -58,9 +66,16 @@ LOG_COLUMNS = (
     "v_a",
     "v_b",
     "v_c",
+    "v_a_motor",
+    "v_b_motor",
+    "v_c_motor",
+    "m_index",
 )
 BOOL_COLUMNS = ("sat_d", "sat_q")
-INT_COLUMNS = ("s_a", "s_b", "s_c")
+INT_COLUMNS = ("s_a", "s_b", "s_c", "pwm_mode_active")
+
+# pwm_mode_active codes — keep in sync with switching._MODE_CODE.
+_PWM_MODE_CODE = {"sine": 0, "svpwm": 1, "dpwmmax": 2, "dpwmmin": 3, "dpwm1": 4}
 
 
 def _tl_value_at(TL: TLRef, t: float) -> float:
@@ -81,11 +96,15 @@ class Simulator:
     particular the FMU) is released on __exit__.
     """
 
-    def __init__(self, motor: PMSMAbcModel, encoder: EncoderMeasurement, controller: FOCController, inverter: Inverter) -> None:
+    def __init__(self, motor: PMSMAbcModel, encoder: EncoderMeasurement, controller: FOCController, inverter: Inverter, filter: LCLFilter | None = None) -> None:
         self.motor = motor
         self.encoder = encoder
         self.controller = controller
         self.inverter = inverter
+        # Optional LCL low-pass between inverter terminals and motor.
+        # Engaged only in switching mode; ideal/average bypass the filter
+        # because their voltage is already smooth.
+        self.filter = filter
 
         self.Vdc = inverter.Vdc
         self.p = motor.p
@@ -115,7 +134,7 @@ class Simulator:
         i_q_ref_override: float | None = None,
         i_d_ref_override: float | None = None,
         T_L_override: float | None = None,
-        bypass_pwm: bool = False,
+        inverter_mode: Literal["ideal", "average", "switching"] = "switching",
     ) -> pl.DataFrame:
         """Run the closed-loop simulation and return a polars DataFrame of the log.
 
@@ -127,8 +146,12 @@ class Simulator:
             i_d_ref_override  if not None, used in place of 0.0.
             T_L_override      if not None, used in place of TL_ref(t) as the
                               mechanical load fed to the FMU.
-            bypass_pwm        if True, FOC's v_abc_ref bypass the inverter
-                              and feed the FMU directly (diagnostic only).
+            inverter_mode     "ideal"     : v_abc_ref straight to FMU.
+                              "average"   : duty as in switching, but emit
+                                            cycle-average (d-0.5)*Vdc, no
+                                            dead-time. Diagnostic.
+                              "switching" : real PWM compare + dead-time
+                                            (default).
         """
         T_pwm = 1.0 / self.controller.f_pwm
         if T_s is None:
@@ -172,21 +195,37 @@ class Simulator:
                 v_a_ref, v_b_ref, v_c_ref = self.controller.step(i_a_meas, i_b_meas, i_c_meas, theta_e_meas, omega_e_meas, i_d_ref=i_d_ref, i_q_ref=i_q_ref, dt=self.dt_ctrl)
             ctrl_phase += T_s
 
-            # (c) Power stage: PWM + inverter, or bypass.
-            if bypass_pwm:
-                # Ideal-voltage path: FOC refs go straight to the FMU. Duty is
-                # logged for inspection but the switch states are not used.
-                d_a = 0.5 + v_a_ref / self.Vdc
-                d_b = 0.5 + v_b_ref / self.Vdc
-                d_c = 0.5 + v_c_ref / self.Vdc
+            # (c) Power stage: ideal voltage source / cycle-averaged PWM / real switching.
+            if inverter_mode == "ideal":
+                # Ideal-voltage path: FOC refs go straight to the FMU.
+                d_a = max(0.0, min(1.0, 0.5 + v_a_ref / self.Vdc))
+                d_b = max(0.0, min(1.0, 0.5 + v_b_ref / self.Vdc))
+                d_c = max(0.0, min(1.0, 0.5 + v_c_ref / self.Vdc))
                 s_a = s_b = s_c = 0
                 v_a, v_b, v_c = v_a_ref, v_b_ref, v_c_ref
+            elif inverter_mode == "average":
+                # Same duty calculation as switching mode (clip + 0.5 + v/Vdc),
+                # but feed the FMU the cycle-average voltage (d-0.5)*Vdc. No
+                # dead-time. Isolates duty / scaling bugs from switching ripple.
+                d_a, d_b, d_c, _, _, _ = self.inverter._pwm.step(v_a_ref, v_b_ref, v_c_ref, self.Vdc, t, T_s)
+                v_a = (d_a - 0.5) * self.Vdc
+                v_b = (d_b - 0.5) * self.Vdc
+                v_c = (d_c - 0.5) * self.Vdc
+                s_a = s_b = s_c = 0
             else:
                 d_a, d_b, d_c, s_a, s_b, s_c, v_a, v_b, v_c = self.inverter.step(v_a_ref, v_b_ref, v_c_ref, i_a, i_b, i_c, t, T_s)
 
-            # (d) PMSM advance.
+            # (c2) Optional LCL output filter — only meaningful with real
+            # switching; ideal/average already produce smooth voltages so we
+            # pass through to keep the diagnostic intent of those modes intact.
+            if self.filter is not None and inverter_mode == "switching":
+                v_a_motor, v_b_motor, v_c_motor = self.filter.step((v_a, v_b, v_c), (i_a, i_b, i_c), T_s)
+            else:
+                v_a_motor, v_b_motor, v_c_motor = v_a, v_b, v_c
+
+            # (d) PMSM advance — fed the filtered voltage when the filter is on.
             T_L = T_L_override if T_L_override is not None else T_e_ref
-            self.motor.step(v_a, v_b, v_c, T_L, T_s)
+            self.motor.step(v_a_motor, v_b_motor, v_c_motor, T_L, T_s)
 
             log["t"][k] = t
             log["TL_ref"][k] = T_L
@@ -217,6 +256,11 @@ class Simulator:
             log["v_a"][k] = v_a
             log["v_b"][k] = v_b
             log["v_c"][k] = v_c
+            log["v_a_motor"][k] = v_a_motor
+            log["v_b_motor"][k] = v_b_motor
+            log["v_c_motor"][k] = v_c_motor
+            log["m_index"][k] = self.inverter._pwm.last_m_index
+            log["pwm_mode_active"][k] = _PWM_MODE_CODE.get(self.inverter._pwm.last_active_mode, 0)
             log["sat_d"][k] = self.controller.sat_d
             log["sat_q"][k] = self.controller.sat_q
 

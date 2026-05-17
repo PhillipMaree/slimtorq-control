@@ -171,6 +171,14 @@ input[type="radio"] {
 /* Simulate button -------------------------------------------------------- */
 
 .alva-btn-simulate {
+    /* Sticky to the bottom of the scroll container (.alva-panel). Stays
+       visible while the user scrolls through the long config form. The
+       coral background already isolates it from scrolling content
+       underneath; the extra bottom margin gives breathing room from the
+       viewport edge. */
+    position: sticky;
+    bottom: 0.75rem;
+    z-index: 2;
     margin-top: 1.1rem;
     width: 100%;
     padding: 0.65rem 1.5rem;
@@ -184,7 +192,7 @@ input[type="radio"] {
     border-radius: 0.3rem;
     cursor: pointer;
     transition: background 120ms ease, transform 80ms ease, box-shadow 120ms ease;
-    box-shadow: 0 1px 2px rgba(247, 110, 92, 0.25);
+    box-shadow: 0 1px 2px rgba(247, 110, 92, 0.25), 0 -8px 12px -8px rgba(255, 255, 255, 0.9);
 }
 
 .alva-btn-simulate:hover {

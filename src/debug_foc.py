@@ -113,7 +113,7 @@ class RunCfg:
     T_L: float = 0.0
     encoder_cfg: EncoderConfig | None = None
     t_dead: float = 0.0
-    bypass_pwm: bool = True
+    inverter_mode: str = "ideal"
     TL_traj: TLRef | None = None  # if set, overrides constant T_L
 
 
@@ -148,7 +148,7 @@ def _run(cfg: RunCfg) -> dict[str, np.ndarray]:
             i_q_ref_override=cfg.i_q_ref,
             i_d_ref_override=cfg.i_d_ref,
             T_L_override=T_L_override,
-            bypass_pwm=cfg.bypass_pwm,
+            inverter_mode=cfg.inverter_mode,
         )
     return {col: df[col].to_numpy() for col in df.columns}
 
@@ -165,7 +165,7 @@ def _verdict(ok: bool) -> str:
 # Step 1: i_q_ref = +10 A, all effects off.
 # ---------------------------------------------------------------------------
 def step1() -> bool:
-    log = _run(RunCfg(i_q_ref=10.0, bypass_pwm=False))
+    log = _run(RunCfg(i_q_ref=10.0, inverter_mode="switching"))
     iq = _tail_mean(log["i_q_meas"])
     idm = _tail_mean(log["i_d_meas"])
     Te = _tail_mean(log["T_e"])
@@ -179,7 +179,7 @@ def step1() -> bool:
 # Step 2: i_q_ref = -10 A, symmetric.
 # ---------------------------------------------------------------------------
 def step2() -> bool:
-    log = _run(RunCfg(i_q_ref=-10.0, bypass_pwm=False))
+    log = _run(RunCfg(i_q_ref=-10.0, inverter_mode="switching"))
     iq = _tail_mean(log["i_q_meas"])
     idm = _tail_mean(log["i_d_meas"])
     Te = _tail_mean(log["T_e"])
@@ -216,7 +216,7 @@ def step4() -> bool:
     """Verify theta_e = p · theta_m, omega_e = p · omega_m, and that
     theta_m_true is in radians (FD of theta_m matches omega_m at the same tick).
     """
-    log = _run(RunCfg(i_q_ref=2.0, duration=0.02, bypass_pwm=True))
+    log = _run(RunCfg(i_q_ref=2.0, duration=0.02, inverter_mode="ideal"))
     p = DEBUG_MOTOR.p
     th = log["theta_m_true"]
     om = log["omega_m_true"]
@@ -242,7 +242,7 @@ def step4() -> bool:
 def step5() -> bool:
     ok = True
     for ref in (10.0, -10.0):
-        log = _run(RunCfg(i_q_ref=ref, bypass_pwm=True))
+        log = _run(RunCfg(i_q_ref=ref, inverter_mode="ideal"))
         iq = _tail_mean(log["i_q_meas"])
         idm = _tail_mean(log["i_d_meas"])
         Te = _tail_mean(log["T_e"])
@@ -257,7 +257,7 @@ def step5() -> bool:
 # Step 6: voltage-command inspection (Step 1 setup, then print v_dq stats).
 # ---------------------------------------------------------------------------
 def step6() -> bool:
-    log = _run(RunCfg(i_q_ref=10.0, bypass_pwm=False))
+    log = _run(RunCfg(i_q_ref=10.0, inverter_mode="switching"))
     vd = log["v_d_ref"]
     vq = log["v_q_ref"]
     mag = np.sqrt(vd * vd + vq * vq)
@@ -278,7 +278,7 @@ def step6() -> bool:
 # Step 7: PWM conversion sanity (Step 1 setup, then check duty + voltage map).
 # ---------------------------------------------------------------------------
 def step7() -> bool:
-    log = _run(RunCfg(i_q_ref=10.0, bypass_pwm=False))
+    log = _run(RunCfg(i_q_ref=10.0, inverter_mode="switching"))
     d = np.concatenate([log["d_a"], log["d_b"], log["d_c"]])
     d_min, d_max = float(np.min(d)), float(np.max(d))
 
@@ -312,7 +312,7 @@ def step8() -> bool:
 def step9() -> bool:
     # Two-segment TLref: 0 until 50 ms, then +1.0 N·m until 100 ms.
     TL = TLRef(ref=np.array([0.0, 1.0]), t=np.array([0.05, 0.10]))
-    log = _run(RunCfg(i_q_ref=10.0, duration=0.10, bypass_pwm=False, TL_traj=TL))
+    log = _run(RunCfg(i_q_ref=10.0, duration=0.10, inverter_mode="switching", TL_traj=TL))
     om = log["omega_m_true"]
     # dω/dt before and after the step.
     half = len(om) // 2
@@ -327,7 +327,7 @@ def step9() -> bool:
 # Step 10: re-enable effects A→F one at a time on the Step-1 setup.
 # ---------------------------------------------------------------------------
 def step10() -> bool:
-    base = RunCfg(i_q_ref=10.0, bypass_pwm=False, encoder_cfg=ENC_IDEAL, t_dead=0.0)
+    base = RunCfg(i_q_ref=10.0, inverter_mode="switching", encoder_cfg=ENC_IDEAL, t_dead=0.0)
     cases = {
         "A: PWM no dead-time   ": base,
         "B: PWM + 1.5µs dead   ": RunCfg(**{**base.__dict__, "t_dead": 1.5e-6}),
@@ -337,7 +337,7 @@ def step10() -> bool:
         "F: T_L step           ": RunCfg(
             i_q_ref=10.0,
             duration=0.10,
-            bypass_pwm=False,
+            inverter_mode="switching",
             TL_traj=TLRef(ref=np.array([0.0, 1.0]), t=np.array([0.05, 0.10])),
         ),
     }

@@ -28,36 +28,96 @@ from fmpy.fmi2 import FMU2Slave
 
 from model import InverterConfig, PmsmModel
 
-
 # ---------------------------------------------------------------------------
 # PWM modulator
 # ---------------------------------------------------------------------------
-class PWMModulator:
-    """Centered sinusoidal PWM with a unipolar triangular carrier.
+_MODE_CODE = {"sine": 0, "svpwm": 1, "dpwmmax": 2, "dpwmmin": 3, "dpwm1": 4}
+_AUTO_HYST_LOW = 0.45
+_AUTO_HYST_HIGH = 0.55
 
-    Duty conversion:
-        d_k = clip(0.5 + v_k_ref / Vdc, 0, 1)
+
+class PWMModulator:
+    """Centered triangular-carrier PWM with selectable zero-sequence injection.
+
+    Duty conversion per phase:
+        d_k = clip(0.5 + (v_k_ref + v_z) / Vdc, 0, 1)
+
+    where `v_z` is a per-tick common-mode offset that depends on `mode`:
+      sine    : v_z = 0                              (no injection — original behaviour)
+      svpwm   : v_z = -(max(v_abc) + min(v_abc)) / 2 (extends linear range by 15%)
+      dpwmmax : v_z = Vdc/2 - max(v_abc)             (top phase clamped to +Vdc/2)
+      dpwmmin : v_z = -Vdc/2 - min(v_abc)            (bottom phase clamped to -Vdc/2)
+      dpwm1   : dpwmmax if |max| >= |min| else dpwmmin (canonical DSVPWM, alternating)
+      auto    : svpwm when m_index < 0.45, dpwm1 when m_index > 0.55 (hysteretic switch)
+
+    Common-mode injection is invisible to the motor's dq currents because
+    the FMU's Clarke transform rejects it; only the duty pattern (and
+    therefore switching-loss profile) changes.
 
     Carrier: a triangle of period T_pwm = 1/f_pwm rising 0 → 1 over [0, T/2)
     and falling 1 → 0 over [T/2, T). Switch state s_k = 1 iff d_k > carrier.
 
-    The modulator is stateless across `step()` calls — it derives the carrier
-    phase from absolute time `t` so the simulator can call it at any dt_sim.
+    The modulator is stateless across `step()` calls except for the
+    auto-mode hysteresis latch and per-tick diagnostic readouts
+    (`last_active_mode`, `last_m_index`).
     """
 
-    def __init__(self, f_pwm: float) -> None:
+    def __init__(self, f_pwm: float, mode: str = "sine") -> None:
+        if mode not in {*_MODE_CODE.keys(), "auto"}:
+            msg = f"PWMModulator: unknown mode {mode!r}"
+            raise ValueError(msg)
         self.f_pwm = f_pwm
         self.T_pwm = 1.0 / f_pwm
+        self.mode = mode
+        # Auto-mode latch starts in continuous; flips to dpwm1 above the
+        # high threshold and back below the low threshold.
+        self._auto_active: str = "svpwm"
+        self.last_active_mode: str = mode if mode != "auto" else "svpwm"
+        self.last_m_index: float = 0.0
 
     def _carrier(self, t: float) -> float:
         phase = (t / self.T_pwm) % 1.0  # in [0, 1)
         # Triangle peak=1 at phase=0.5, valley=0 at phase=0 and 1.
         return 1.0 - 2.0 * abs(phase - 0.5)
 
+    def _resolve_active_mode(self, m_index: float) -> str:
+        if self.mode != "auto":
+            return self.mode
+        # Hysteresis: only flip when crossing the far threshold from the
+        # other side, so noise around 0.5 doesn't chatter.
+        if self._auto_active == "svpwm" and m_index > _AUTO_HYST_HIGH:
+            self._auto_active = "dpwm1"
+        elif self._auto_active == "dpwm1" and m_index < _AUTO_HYST_LOW:
+            self._auto_active = "svpwm"
+        return self._auto_active
+
+    @staticmethod
+    def _v_z(active_mode: str, v_a: float, v_b: float, v_c: float, Vdc: float) -> float:
+        if active_mode == "sine":
+            return 0.0
+        v_max = max(v_a, v_b, v_c)
+        v_min = min(v_a, v_b, v_c)
+        if active_mode == "svpwm":
+            return -0.5 * (v_max + v_min)
+        if active_mode == "dpwmmax":
+            return 0.5 * Vdc - v_max
+        if active_mode == "dpwmmin":
+            return -0.5 * Vdc - v_min
+        # dpwm1 — clamp whichever rail is closer to the current peak.
+        return 0.5 * Vdc - v_max if abs(v_max) >= abs(v_min) else -0.5 * Vdc - v_min
+
     def step(self, v_a_ref: float, v_b_ref: float, v_c_ref: float, Vdc: float, t: float, dt: float) -> tuple[float, float, float, int, int, int]:
-        d_a = max(0.0, min(1.0, 0.5 + v_a_ref / Vdc))
-        d_b = max(0.0, min(1.0, 0.5 + v_b_ref / Vdc))
-        d_c = max(0.0, min(1.0, 0.5 + v_c_ref / Vdc))
+        # Modulation index for the auto-mode switch (and for diagnostic logging).
+        # With centered Clarke the peak phase ref equals |v_dq|.
+        v_peak = max(abs(v_a_ref), abs(v_b_ref), abs(v_c_ref))
+        m_index = v_peak / (0.5 * Vdc) if Vdc > 0.0 else 0.0
+        active = self._resolve_active_mode(m_index)
+        v_z = self._v_z(active, v_a_ref, v_b_ref, v_c_ref, Vdc)
+        self.last_active_mode = active
+        self.last_m_index = m_index
+        d_a = max(0.0, min(1.0, 0.5 + (v_a_ref + v_z) / Vdc))
+        d_b = max(0.0, min(1.0, 0.5 + (v_b_ref + v_z) / Vdc))
+        d_c = max(0.0, min(1.0, 0.5 + (v_c_ref + v_z) / Vdc))
         c = self._carrier(t)
         s_a = 1 if d_a > c else 0
         s_b = 1 if d_b > c else 0
@@ -97,7 +157,7 @@ class Inverter:
         self.cfg = cfg
         self.Vdc = float(cfg.Vdc)
         self.t_dead = float(cfg.t_dead)
-        self._pwm = PWMModulator(f_pwm=cfg.f_pwm)
+        self._pwm = PWMModulator(f_pwm=cfg.f_pwm, mode=cfg.pwm_mode)
         self._prev_s = [-1, -1, -1]  # force "edge" on first call
         self._t_since_edge = [math.inf, math.inf, math.inf]
 
@@ -135,6 +195,62 @@ class Inverter:
                 v[k] = (s[k] - 0.5) * self.Vdc
             self._t_since_edge[k] += dt
         return v[0], v[1], v[2]
+
+
+# ---------------------------------------------------------------------------
+# LCL output filter (Python-side, between inverter terminals and motor)
+# ---------------------------------------------------------------------------
+class LCLFilter:
+    """Per-phase LCL low-pass between inverter terminals and motor.
+
+    Topology per phase (the motor's L_s is the LCL's second-stage inductor;
+    we only add the inverter-side L_f + shunt C_f branch with series R_d
+    for passive damping):
+
+        v_inv ──L_f──┬── v_motor ──L_s── motor back-EMF
+                     │
+                    C_f
+                     │
+                    R_d
+                     │
+                     ─── (3-phase common; CM is rejected by the FMU's Clarke)
+
+    Two state variables per phase: inductor current `i_Lf` and capacitor
+    voltage `v_Cf`. ODE (per phase):
+
+        i_Lf' = (v_inv - v_Cf - R_d * (i_Lf - i_motor)) / L_f
+        v_Cf' = (i_Lf - i_motor) / C_f
+        v_motor = v_Cf + R_d * (i_Lf - i_motor)
+
+    Integrated by forward Euler at the simulator's inner step `dt`. Stable
+    at the default dt_sim = T_pwm / 20 = 1 µs (50 kHz carrier) for cutoffs
+    >= a few kHz.
+    """
+
+    def __init__(self, L_f: float, C_f: float, R_d: float) -> None:
+        self.L_f = float(L_f)
+        self.C_f = float(C_f)
+        self.R_d = float(R_d)
+        self._i_Lf = [0.0, 0.0, 0.0]
+        self._v_Cf = [0.0, 0.0, 0.0]
+
+    def reset(self) -> None:
+        self._i_Lf = [0.0, 0.0, 0.0]
+        self._v_Cf = [0.0, 0.0, 0.0]
+
+    def step(self, v_inv_abc: tuple[float, float, float], i_motor_abc: tuple[float, float, float], dt: float) -> tuple[float, float, float]:
+        v_motor = [0.0, 0.0, 0.0]
+        for k in range(3):
+            i_Lf = self._i_Lf[k]
+            v_Cf = self._v_Cf[k]
+            i_diff = i_Lf - i_motor_abc[k]
+            v_drop = self.R_d * i_diff
+            di_dt = (v_inv_abc[k] - v_Cf - v_drop) / self.L_f
+            dv_dt = i_diff / self.C_f
+            self._i_Lf[k] = i_Lf + di_dt * dt
+            self._v_Cf[k] = v_Cf + dv_dt * dt
+            v_motor[k] = v_Cf + v_drop
+        return v_motor[0], v_motor[1], v_motor[2]
 
 
 # ---------------------------------------------------------------------------

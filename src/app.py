@@ -26,17 +26,17 @@ from dash import Dash, Input, Output, State, dcc, html, no_update
 import plots
 from controller import FOCController
 from encoder import EncoderMeasurement, FluxEncoder
-from model import EncoderConfig, FocConfig, InverterConfig, PmsmModel, TLRef, load_catalog
+from model import EncoderConfig, FilterConfig, FocConfig, InverterConfig, PmsmModel, TLRef, load_catalog
 from simulator import Simulator
-from switching import Inverter, PMSMAbcModel
-from tuning import modulus_optimum_tuning
+from switching import Inverter, LCLFilter, PMSMAbcModel
+from tuning import modulus_optimum_tuning, skogestad_tuning
 
 ASSETS_DIR = str(Path(__file__).resolve().parent.parent / "assets")
 _OUTPUT_DIR = Path(__file__).resolve().parent.parent / ".temp"
-_SCHEMA_VERSION = "4"
+_SCHEMA_VERSION = "7"
 
 CATALOG = load_catalog()
-DEFAULT_VARIANT = "STM-75-20-L-4Y"
+DEFAULT_VARIANT = "STM-130-27-M-4D"
 TWO_PI = 2.0 * math.pi
 
 
@@ -64,7 +64,16 @@ def _write_parquet(
     f_pwm: float,
     t_dead: float,
     ts_enc: float,
+    inverter_mode: str,
+    pwm_mode: str,
+    filter_enabled: bool,
+    filter_fc: float,
+    L_f: float,
+    C_f: float,
+    R_d: float,
     pi_mode: str,
+    pi_tc: float | None,
+    pi_k1: float,
     params_json: str,
     params_hash: str,
     out_path: Path,
@@ -90,10 +99,19 @@ def _write_parquet(
         b"slimtorq.foc_kp": f"{controller.Kp:.10g}".encode(),
         b"slimtorq.foc_ki": f"{controller.Ki:.10g}".encode(),
         b"slimtorq.pi_mode": pi_mode.encode(),
+        b"slimtorq.pi_tc": (b"null" if pi_tc is None else f"{pi_tc:.10g}".encode()),
+        b"slimtorq.pi_k1": f"{pi_k1:.10g}".encode(),
         b"slimtorq.vdc": f"{Vdc:.10g}".encode(),
         b"slimtorq.f_pwm": f"{f_pwm:.10g}".encode(),
         b"slimtorq.t_dead": f"{t_dead:.10g}".encode(),
         b"slimtorq.ts_enc": f"{ts_enc:.10g}".encode(),
+        b"slimtorq.inverter_mode": inverter_mode.encode(),
+        b"slimtorq.pwm_mode": pwm_mode.encode(),
+        b"slimtorq.filter_enabled": (b"1" if filter_enabled else b"0"),
+        b"slimtorq.filter_fc": f"{filter_fc:.10g}".encode(),
+        b"slimtorq.filter_lf": f"{L_f:.10g}".encode(),
+        b"slimtorq.filter_cf": f"{C_f:.10g}".encode(),
+        b"slimtorq.filter_rd": f"{R_d:.10g}".encode(),
         b"slimtorq.b_est": (b"null" if b_est is None else f"{b_est:.10g}".encode()),
         b"slimtorq.motor_family": motor.family.encode(),
         b"slimtorq.motor_name": motor.name.encode(),
@@ -127,13 +145,18 @@ def _params_hash(json_str: str) -> str:
     return hashlib.blake2b(json_str.encode(), digest_size=8).hexdigest()
 
 
-def _gains_for_mode(variant: str, pi_mode: str, f_pwm: float) -> tuple[float, float] | None:
+def _gains_for_mode(variant: str, pi_mode: str, f_pwm: float, pi_tc: float | None = None, pi_k1: float = 1.44) -> tuple[float, float] | None:
     """Compute auto-suggested (Kp, Ki) for the variant + mode. None for manual."""
     if variant is None:
         return None
     m = CATALOG[variant]
-    if pi_mode == "modulus_optimum" and f_pwm is not None:
+    if f_pwm is None:
+        return None
+    if pi_mode == "modulus_optimum":
         return modulus_optimum_tuning(m.R_s, m.L_s, float(f_pwm))
+    if pi_mode == "skogestad":
+        Tc = None if pi_tc is None else float(pi_tc)
+        return skogestad_tuning(m.R_s, m.L_s, float(f_pwm), k1=float(pi_k1), Tc=Tc)
     return None
 
 
@@ -179,7 +202,7 @@ def _section(title: str, children: list) -> html.Div:
 # Compute initial Kp/Ki for the default variant via modulus-optimum tuning at
 # the default f_pwm so the manual inputs show a sensible starting value the
 # first time the user picks Manual.
-DEFAULT_F_PWM = 20000.0
+DEFAULT_F_PWM = 50000.0
 kp0, ki0 = modulus_optimum_tuning(CATALOG[DEFAULT_VARIANT].R_s, CATALOG[DEFAULT_VARIANT].L_s, DEFAULT_F_PWM)
 
 
@@ -228,8 +251,41 @@ CONFIG_PANEL = html.Div(
                     [
                         # Vdc is derived from the selected variant's catalog rated_voltage
                         # at runtime (motor.rated_voltage); not a UI input.
-                        _num("f_pwm", 20000.0, step=1000.0, mn=1000.0, mx=50000.0, suffix="Hz", label=_sub("f", "pwm")),
-                        _num("t_dead", 1.5e-6, step=1e-7, mn=0.0, mx=5e-6, suffix="s", label=_sub("t", "dead")),
+                        _num("f_pwm", 50000.0, step=1000.0, mn=1000.0, mx=100000.0, suffix="Hz", label=_sub("f", "pwm")),
+                        _num("t_dead", 2e-7, step=1e-8, mn=0.0, mx=5e-6, suffix="s", label=_sub("t", "dead")),
+                        html.Div(
+                            className="alva-row",
+                            children=[
+                                html.Label("PWM mode"),
+                                dcc.RadioItems(
+                                    id="pwm_mode",
+                                    className="alva-radio",
+                                    options=[
+                                        {"label": " sine", "value": "sine"},
+                                        {"label": " svpwm", "value": "svpwm"},
+                                        {"label": " dpwmmax", "value": "dpwmmax"},
+                                        {"label": " dpwmmin", "value": "dpwmmin"},
+                                        {"label": " dpwm1", "value": "dpwm1"},
+                                        {"label": " auto (svpwm ↔ dpwm1)", "value": "auto"},
+                                    ],
+                                    value="sine",
+                                    labelStyle={"display": "block"},
+                                ),
+                            ],
+                        ),
+                    ],
+                ),
+                _section(
+                    "Output filter (LCL)",
+                    [
+                        dcc.Checklist(
+                            id="filter_enabled",
+                            options=[{"label": " Enable LCL filter between inverter and motor", "value": "on"}],
+                            value=[],
+                        ),
+                        _num("filter_fc", 5000.0, step=500.0, mn=500.0, mx=20000.0, suffix="Hz", label=_sub("f", "c")),
+                        html.Div(id="filter_recommendation", className="alva-status", style={"fontSize": "0.78rem", "padding": "0.25rem 0", "lineHeight": "1.35"}),
+                        html.Div(id="filter_derived", className="alva-status", style={"fontSize": "0.78rem", "padding": "0.25rem 0"}),
                     ],
                 ),
                 _section(
@@ -276,12 +332,18 @@ CONFIG_PANEL = html.Div(
                                 dcc.RadioItems(
                                     id="pi_mode",
                                     className="alva-radio",
-                                    options=[{"label": " Modulus Optimum (f_pwm)", "value": "modulus_optimum"}, {"label": " Manual (Kp, Ki)", "value": "manual"}],
+                                    options=[
+                                        {"label": " Modulus Optimum (f_pwm)", "value": "modulus_optimum"},
+                                        {"label": " Skogestad (T_c, k1)", "value": "skogestad"},
+                                        {"label": " Manual (Kp, Ki)", "value": "manual"},
+                                    ],
                                     value="modulus_optimum",
                                     labelStyle={"display": "block"},
                                 ),
                             ],
                         ),
+                        _num("pi_tc", None, step=1e-7, mn=1e-7, mx=1e-3, suffix="s (None=1.5/f_pwm)", disabled=True, label=_sub("T", "c")),
+                        _num("pi_k1", 1.44, step=0.01, mn=0.5, mx=8.0, disabled=True, label=_sub("k", "1")),
                         _num("Kp", round(kp0, 6), step=1e-3, mn=0.0, suffix="V/A", disabled=True, label=_sub("K", "p")),
                         _num("Ki", round(ki0, 6), step=1e-3, mn=0.0, suffix="V/(A·s)", disabled=True, label=_sub("K", "i")),
                     ],
@@ -293,10 +355,17 @@ CONFIG_PANEL = html.Div(
                     className="alva-section alva-debug",
                     children=[
                         html.Summary("Debug"),
-                        dcc.Checklist(
-                            id="bypass_pwm",
-                            options=[{"label": " Bypass PWM (feed v_abc_ref straight into FMU — diagnostic only)", "value": "on"}],
-                            value=[],
+                        html.Label("Inverter mode"),
+                        dcc.RadioItems(
+                            id="inverter_mode",
+                            className="alva-radio",
+                            options=[
+                                {"label": " ideal (v_abc_ref straight to FMU)", "value": "ideal"},
+                                {"label": " average (cycle-averaged PWM, no dead-time)", "value": "average"},
+                                {"label": " switching (real PWM compare + dead-time)", "value": "switching"},
+                            ],
+                            value="switching",
+                            labelStyle={"display": "block"},
                         ),
                     ],
                 ),
@@ -353,18 +422,73 @@ app.layout = html.Div([CONFIG_PANEL, PLOT_PANEL], style={"display": "flex", "ali
 @app.callback(
     Output("Kp", "disabled"),
     Output("Ki", "disabled"),
+    Output("pi_tc", "disabled"),
+    Output("pi_k1", "disabled"),
     Input("pi_mode", "value"),
 )
 def toggle_pi_inputs(pi_mode: str):
-    # Modulus Optimum -> Kp/Ki disabled (auto-populated from f_pwm).
-    # Manual -> Kp/Ki enabled.
+    # Manual -> Kp/Ki enabled, Skogestad knobs disabled.
+    # Skogestad -> Kp/Ki disabled (auto from Tc,k1), Skogestad knobs enabled.
+    # Modulus Optimum -> all four disabled (Kp/Ki auto-populated from f_pwm).
     if pi_mode == "manual":
-        return False, False
-    return True, True
+        return False, False, True, True
+    if pi_mode == "skogestad":
+        return True, True, False, False
+    return True, True, True, True
+
+
+# Reset Skogestad knobs to canonical defaults whenever the radio flips
+# into skogestad mode, so a stale T_c / k1 from a previous session doesn't
+# silently apply. No-op on the other modes.
+@app.callback(
+    Output("pi_tc", "value"),
+    Output("pi_k1", "value"),
+    Input("pi_mode", "value"),
+)
+def reset_skogestad_defaults(pi_mode: str):
+    if pi_mode == "skogestad":
+        return None, 1.44
+    return no_update, no_update
 
 
 # ----------------------------------------------------------------------------
-# Auto-populate Kp/Ki when variant or f_pwm changes (modulus-optimum mode)
+# Show derived LCL filter components for the selected variant and cutoff.
+# ----------------------------------------------------------------------------
+@app.callback(
+    Output("filter_derived", "children"),
+    Input("variant", "value"),
+    Input("filter_fc", "value"),
+)
+def show_filter_components(variant: str | None, f_c: float | None) -> str:
+    if variant is None or f_c is None:
+        return ""
+    L_s = CATALOG[variant].L_s
+    L_f, C_f, R_d = FilterConfig.derive_components(L_s, float(f_c))
+    return f"L_f={L_f * 1e6:.2f} µH   C_f={C_f * 1e6:.2f} µF   R_d={R_d:.3f} Ω"
+
+
+# ----------------------------------------------------------------------------
+# Recommend an f_c range based on the two textbook bounds:
+#   upper: f_pwm / 10  (≈40 dB carrier attenuation, 2nd-order LCL roll-off)
+#   lower: 2 · f_BW    (don't eat the current-loop phase margin)
+# At motor-drive scales these bounds usually don't overlap; the hint
+# surfaces both so the user picks the compromise consciously.
+# ----------------------------------------------------------------------------
+@app.callback(
+    Output("filter_recommendation", "children"),
+    Input("f_pwm", "value"),
+)
+def show_filter_recommendation(f_pwm: float | None) -> str:
+    if f_pwm is None:
+        return ""
+    f_BW = float(f_pwm) / (3.0 * math.pi)
+    f_c_typical = float(f_pwm) / 10.0
+    f_c_safe = 2.0 * f_BW
+    return f"loop BW ≈ {f_BW:.0f} Hz · typical f_c ≈ {f_c_typical:.0f} Hz (f_pwm/10) · loop-safe floor ≈ {f_c_safe:.0f} Hz (2·f_BW)"
+
+
+# ----------------------------------------------------------------------------
+# Auto-populate Kp/Ki when variant, f_pwm, pi_mode, or Skogestad knobs change.
 # ----------------------------------------------------------------------------
 @app.callback(
     Output("Kp", "value"),
@@ -372,11 +496,13 @@ def toggle_pi_inputs(pi_mode: str):
     Input("variant", "value"),
     Input("f_pwm", "value"),
     Input("pi_mode", "value"),
+    Input("pi_tc", "value"),
+    Input("pi_k1", "value"),
 )
-def suggest_pi_gains(variant, f_pwm, pi_mode):
+def suggest_pi_gains(variant, f_pwm, pi_mode, pi_tc, pi_k1):
     if pi_mode == "manual":
         return no_update, no_update
-    gains = _gains_for_mode(variant, pi_mode, f_pwm)
+    gains = _gains_for_mode(variant, pi_mode, f_pwm, pi_tc=pi_tc, pi_k1=pi_k1 if pi_k1 is not None else 1.44)
     if gains is None:
         return no_update, no_update
     kp, ki = gains
@@ -446,7 +572,12 @@ def _render_all(df: pl.DataFrame, meta: dict[str, str]):
     State("pi_mode", "value"),
     State("Kp", "value"),
     State("Ki", "value"),
-    State("bypass_pwm", "value"),
+    State("pi_tc", "value"),
+    State("pi_k1", "value"),
+    State("inverter_mode", "value"),
+    State("pwm_mode", "value"),
+    State("filter_enabled", "value"),
+    State("filter_fc", "value"),
     prevent_initial_call=True,
 )
 def simulate(
@@ -474,7 +605,12 @@ def simulate(
     pi_mode,
     Kp,
     Ki,
-    bypass_pwm_value,
+    pi_tc,
+    pi_k1,
+    inverter_mode,
+    pwm_mode,
+    filter_enabled_value,
+    filter_fc,
 ):
     if variant is None:
         return *([no_update] * 12), "no variant selected"
@@ -507,7 +643,6 @@ def simulate(
 
     motor_cfg = CATALOG[variant]
     Vdc = float(motor_cfg.rated_voltage)
-    bypass_pwm = bool(bypass_pwm_value) and "on" in (bypass_pwm_value or [])
 
     params = {
         "variant_name": variant,
@@ -533,8 +668,15 @@ def simulate(
         "pi_mode": pi_mode,
         "Kp": float(Kp) if Kp is not None else None,
         "Ki": float(Ki) if Ki is not None else None,
-        "bypass_pwm": bypass_pwm,
+        "pi_tc": None if pi_tc is None else float(pi_tc),
+        "pi_k1": float(pi_k1) if pi_k1 is not None else 1.44,
+        "inverter_mode": inverter_mode,
+        "pwm_mode": pwm_mode,
+        "filter_enabled": bool(filter_enabled_value) and "on" in (filter_enabled_value or []),
+        "filter_fc": float(filter_fc),
     }
+    filter_enabled = params["filter_enabled"]
+    L_f_val, C_f_val, R_d_val = FilterConfig.derive_components(motor_cfg.L_s, float(filter_fc))
     params_json = _canonical_params_json(params)
     h = _params_hash(params_json)
     out_path = _output_path_for(motor_cfg)
@@ -555,10 +697,18 @@ def simulate(
     )
     TL = _default_TL_ref(motor_cfg, t_end=float(t_end), t_step=float(t_step), frac=float(t_step_frac))
 
-    # Pick Kp/Ki per pi_mode: manual passes through, otherwise modulus-optimum.
-    use_manual = pi_mode == "manual" and Kp is not None and Ki is not None
-    if use_manual:
+    # Pick Kp/Ki per pi_mode: manual passes through, Skogestad uses (Tc, k1),
+    # otherwise modulus-optimum.
+    if pi_mode == "manual" and Kp is not None and Ki is not None:
         Kp_used, Ki_used = float(Kp), float(Ki)
+    elif pi_mode == "skogestad":
+        Kp_used, Ki_used = skogestad_tuning(
+            motor_cfg.R_s,
+            motor_cfg.L_s,
+            float(f_pwm),
+            k1=float(pi_k1) if pi_k1 is not None else 1.44,
+            Tc=None if pi_tc is None else float(pi_tc),
+        )
     else:
         Kp_used, Ki_used = modulus_optimum_tuning(motor_cfg.R_s, motor_cfg.L_s, float(f_pwm))
 
@@ -573,17 +723,18 @@ def simulate(
         Ki=Ki_used,
     )
     controller = FOCController(foc_cfg)
-    inverter = Inverter(InverterConfig(Vdc=Vdc, f_pwm=float(f_pwm), t_dead=float(t_dead)))
+    inverter = Inverter(InverterConfig(Vdc=Vdc, f_pwm=float(f_pwm), t_dead=float(t_dead), pwm_mode=pwm_mode))
     encoder = EncoderMeasurement(FluxEncoder(encoder_cfg), p=motor_cfg.p)
     motor = PMSMAbcModel(motor_cfg)
+    lcl_filter = LCLFilter(L_f=L_f_val, C_f=C_f_val, R_d=R_d_val) if filter_enabled else None
 
     try:
-        with Simulator(motor, encoder, controller, inverter) as sim:
+        with Simulator(motor, encoder, controller, inverter, filter=lcl_filter) as sim:
             df = sim.run(
                 TL,
                 T_s=None if dt_sim is None else float(dt_sim),
                 T_f=None if Tf is None else float(Tf),
-                bypass_pwm=bypass_pwm,
+                inverter_mode=inverter_mode,
             )
     except Exception as e:
         return *([no_update] * 12), f"error: {e}"
@@ -596,7 +747,16 @@ def simulate(
         f_pwm=float(f_pwm),
         t_dead=float(t_dead),
         ts_enc=float(ts_enc),
+        inverter_mode=inverter_mode,
+        pwm_mode=pwm_mode,
+        filter_enabled=filter_enabled,
+        filter_fc=float(filter_fc),
+        L_f=L_f_val,
+        C_f=C_f_val,
+        R_d=R_d_val,
         pi_mode=pi_mode,
+        pi_tc=None if pi_tc is None else float(pi_tc),
+        pi_k1=float(pi_k1) if pi_k1 is not None else 1.44,
         params_json=params_json,
         params_hash=h,
         out_path=out_path,
@@ -604,12 +764,24 @@ def simulate(
 
     meta = _read_metadata(out_path)
     figs = _render_all(df, meta)
+
+    # Tracking-error %: RMS(i_q - i_q_ref) / RMS(i_q_ref) over the trailing
+    # 80 % of the run. Normalising floor keeps the metric stable for
+    # near-zero references (otherwise the ratio explodes).
+    tail = df.slice(int(0.8 * df.height), df.height - int(0.8 * df.height))
+    err_arr = (tail["i_q_meas"] - tail["i_q_ref"]).to_numpy()
+    ref_arr = tail["i_q_ref"].to_numpy()
+    err_rms = float(np.sqrt(np.mean(err_arr * err_arr)))
+    ref_floor = max(float(np.sqrt(np.mean(ref_arr * ref_arr))), float(abs(ref_arr.mean())), 1e-9)
+    err_pct = 100.0 * err_rms / ref_floor
+
     status = (
         f"ran sim: {out_path.name}   "
         f"hash={h}   rows={df.height}   "
         f"Kp={meta.get('slimtorq.foc_kp', '?')}  "
         f"Ki={meta.get('slimtorq.foc_ki', '?')}  "
-        f"[{meta.get('slimtorq.pi_mode', '?')}]"
+        f"[{meta.get('slimtorq.pi_mode', '?')}]  "
+        f"err={err_pct:.2f} %"
     )
     return (*figs, status)
 

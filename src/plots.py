@@ -72,12 +72,38 @@ _FIG_MARGIN = dict(l=55, r=20, t=80, b=50)
 _FIG_LEGEND = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1.0)
 
 
+def _ref_tracking_err_pct(df: pl.DataFrame, meas_col: str, ref_col: str) -> float:
+    """RMS(meas - ref) / RMS(ref), trailing 80%, in percent.
+
+    Normalising floor falls back to |mean(ref)| then 1e-9 so the ratio stays
+    finite when the reference is constant or near zero.
+    """
+    n = df.height
+    if n < 4:
+        return float("nan")
+    tail = df.slice(int(0.8 * n), n - int(0.8 * n))
+    err = (tail[meas_col] - tail[ref_col]).to_numpy()
+    ref = tail[ref_col].to_numpy()
+    err_rms = float(np.sqrt(np.mean(err * err)))
+    ref_floor = max(float(np.sqrt(np.mean(ref * ref))), float(abs(ref.mean())), 1e-9)
+    return 100.0 * err_rms / ref_floor
+
+
 def figure_tracking(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
-    r"""T_L_ref vs T_e, i_q^* vs i_q, i_d^* vs i_d on a 3-row shared-x subplot."""
+    r"""T_L_ref vs T_e, i_q^* vs i_q, i_d^* vs i_d on a 3-row shared-x subplot.
+
+    Each subplot title carries the steady-state RMS reference-tracking error
+    (trailing 80% of samples) for its own pair: Torque uses TL_ref vs T_e,
+    i_q uses i_q_ref vs i_q_meas, i_d uses i_d_ref vs i_d_meas.
+    """
     t = _t_ms(df)
-    fig = make_subplots(
-        rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.05, subplot_titles=(r"$\text{Torque } [\mathrm{N \cdot m}]$", r"$i_q \;[\mathrm{A}]$", r"$i_d \;[\mathrm{A}]$")
-    )
+    err_t = _ref_tracking_err_pct(df, "T_e", "TL_ref")
+    err_q = _ref_tracking_err_pct(df, "i_q_meas", "i_q_ref")
+    err_d = _ref_tracking_err_pct(df, "i_d_meas", "i_d_ref")
+    title_t = rf"$\text{{Torque }} [\mathrm{{N \cdot m}}] \quad \text{{err}} = {err_t:.2f}\,\%$"
+    title_q = rf"$i_q \;[\mathrm{{A}}] \quad \text{{err}} = {err_q:.2f}\,\%$"
+    title_d = rf"$i_d \;[\mathrm{{A}}] \quad \text{{err}} = {err_d:.2f}\,\%$"
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.05, subplot_titles=(title_t, title_q, title_d))
     fig.add_trace(go.Scatter(x=t, y=df["TL_ref"], name=r"$T_L^{\,ref}$", line=_line(0, ref=True)), row=1, col=1)
     fig.add_trace(go.Scatter(x=t, y=df["T_e"], name=r"$T_e$", line=_line(0)), row=1, col=1)
     fig.add_trace(go.Scatter(x=t, y=df["i_q_ref"], name=r"$i_q^{\,*}$", line=_line(1, ref=True)), row=2, col=1)
@@ -351,14 +377,16 @@ def figure_phase_currents(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
 
 
 def figure_phase_voltages(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
-    r"""FOC v_k^{ref} overlaid with post-inverter switched v_k (the PWM ripple).
+    r"""FOC v_k^{ref} overlaid with post-inverter v_k and (when filter on) v_k^{motor}.
 
-    Per phase the ref and the post-inverter signal share a palette slot — same
-    color, ref dashed, post-inverter solid faint. Reads as one pair per phase.
+    Per phase the three signals share a palette slot — ref dashed, post-inverter
+    solid faint, motor-side solid medium. When the LCL filter is disabled
+    v_motor == v_post-inv so the medium trace overlaps the faint trace.
     """
     t = _t_ms(df)
     Vdc = float(meta.get("slimtorq.vdc", "72"))
     half = Vdc / 2.0
+    filter_on = meta.get("slimtorq.filter_enabled", "0") == "1"
     fig = go.Figure()
     for idx, ph in enumerate(("a", "b", "c")):
         fig.add_trace(
@@ -372,12 +400,23 @@ def figure_phase_voltages(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
                 hovertemplate=None,
             )
         )
+        if filter_on:
+            fig.add_trace(
+                go.Scatter(
+                    x=t,
+                    y=df[f"v_{ph}_motor"],
+                    name=rf"$v_{ph}^{{\,motor}} \,(\text{{post-LCL}})$",
+                    line=_line(idx, width=1.6),
+                    legendgroup=ph,
+                )
+            )
         fig.add_trace(go.Scatter(x=t, y=df[f"v_{ph}_ref"], name=rf"$v_{ph}^{{\,ref}}$", line=_line(idx, ref=True, width=2.0), legendgroup=ph))
     fig.add_hline(y=half, line=dict(width=0.5, color="red", dash="dot"), annotation_text=rf"$+V_{{dc}}/2={half:g}$")
     fig.add_hline(y=-half, line=dict(width=0.5, color="red", dash="dot"))
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$")
     fig.update_yaxes(title_text=r"$\text{phase voltage } [\mathrm{V}]$")
-    fig.update_layout(title=_title(meta, "Phase voltages: FOC refs vs post-inverter"), height=500, hovermode="x unified", margin=_FIG_MARGIN, legend=_FIG_LEGEND)
+    title_suffix = "Phase voltages: refs, post-inverter, post-LCL motor side" if filter_on else "Phase voltages: FOC refs vs post-inverter"
+    fig.update_layout(title=_title(meta, title_suffix), height=500, hovermode="x unified", margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig
 
 

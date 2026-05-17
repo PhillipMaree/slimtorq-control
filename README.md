@@ -2,10 +2,12 @@
 
 Python-side **Field-Oriented Control (FOC)** for an OpenModelica slotless-PMSM
 motor model, with a real **PWM + inverter** in the loop, dead-time emulation,
-modulus-optimum / pole-zero-cancellation current-loop tuning, and an
-interactive **Dash UI** that re-runs the simulation on every click and
-persists the trace to a Polars/Parquet file (no cache read — every run is
-fresh).
+selectable PWM modulation (sine / SVPWM / DPWMMAX / DPWMMIN / DPWM1 / auto
+hybrid), optional **LCL output filter** between inverter and motor (component
+values derived from a cutoff target), modulus-optimum / pole-zero-cancellation
+current-loop tuning, and an interactive **Dash UI** that re-runs the
+simulation on every click and persists the trace to a Polars/Parquet file (no
+cache read — every run is fresh).
 
 The motor is parameterised from [config/catalog.yaml](config/catalog.yaml) against the Alva
 **SlimTorq** lineup (9 families × ~12 winding configurations ≈ 86 entries).
@@ -95,7 +97,8 @@ graph TD
     load_catalog()"]
     tuning["tuning.py
     auto_pi_gains_from_bw
-    modulus_optimum_tuning"]
+    modulus_optimum_tuning
+    skogestad_tuning"]
     transform["transform.py
     Clarke / Park /
     inverses"]
@@ -152,15 +155,15 @@ graph TD
 | [modelica/build_fmu.mos](modelica/build_fmu.mos) | `omc` build script producing `SlotlessPMSM_abc.fmu`. |
 | [config/catalog.yaml](config/catalog.yaml) | Nested family → variant → winding data. Every cell is `{unit, value}` so units are explicit. |
 | [src/model.py](src/model.py) | All Pydantic v2 models — catalog-parsing schema, the `MotorSku` + `decode_sku` serial decoder (catalog REV1.8 p.28), the `CatalogMotor` connection-aware computed-field bridge (R_s / L_s / ψ_m / J per p.35), the simulation-facing flat types (`PmsmModel`, `EncoderConfig`, `FocConfig`, `InverterConfig`, `TLRef`), and the catalog loader. `python -m model` exercises the decoder, prints the STM-75-20-L-4Y worked example, then cross-checks every variant against its catalog continuous-torque. |
-| [src/tuning.py](src/tuning.py) | Pure functions `auto_pi_gains_from_bw(R, L, bw_hz)` (pole-zero cancellation) and `modulus_optimum_tuning(R, L, f_pwm)` (Leonhard / Schroeder MO). |
+| [src/tuning.py](src/tuning.py) | Pure functions `auto_pi_gains_from_bw(R, L, bw_hz)` (pole-zero cancellation), `modulus_optimum_tuning(R, L, f_pwm)` (Leonhard / Schroeder MO), and `skogestad_tuning(R, L, f_pwm, k1, Tc)` (Skogestad SIMC, Haugen §7.5 Table 7.1 row 2; defaults `k1=1.44` and `Tc=1.5/f_pwm` per Haugen footnote 11 and eq. 7.91). |
 | [src/transform.py](src/transform.py) | Amplitude-invariant Clarke / Park + composed `abc_to_dq`, `dq_to_abc`. `python transform.py` round-trip self-test. |
 | [src/controller.py](src/controller.py) | `PIController` (parallel-form PI with split unsaturated/integrate API for shared anti-windup), `FOCController` (Clarke → Park → 2× PI → **dq decoupling + BEMF feedforward** → **vector saturation** → InvPark → InvClarke). Exposes `f_pwm` so the Simulator can derive `dt_ctrl`. |
-| [src/debug_foc.py](src/debug_foc.py) | Standalone FOC sanity-debug CLI. `uv run python src/debug_foc.py --all` walks an 11-step procedure (ideal-mode → re-enable each non-ideality) against a synthetic motor matching the docs (R_s=0.5 Ω, L_s=100 µH, ψ_m=0.02 Wb, p=4). Uses the new 4-component pipeline under a `with Simulator(...) as sim:` block; debug overrides (`i_q_ref_override`, `i_d_ref_override`, `T_L_override`, `bypass_pwm`) are `run()` kwargs. |
+| [src/debug_foc.py](src/debug_foc.py) | Standalone FOC sanity-debug CLI. `uv run python src/debug_foc.py --all` walks an 11-step procedure (ideal-mode → re-enable each non-ideality) against a synthetic motor matching the docs (R_s=0.5 Ω, L_s=100 µH, ψ_m=0.02 Wb, p=4). Uses the new 4-component pipeline under a `with Simulator(...) as sim:` block; debug overrides (`i_q_ref_override`, `i_d_ref_override`, `T_L_override`, `inverter_mode`) are `run()` kwargs. |
 | [src/encoder.py](src/encoder.py) | `FluxEncoder` (sample-and-hold + 3-harmonic cyclic error + N-bit quantization), `EncoderMeasurement` (composite wrapper adding `θ_e_meas` + i_abc pass-through). |
-| [src/switching.py](src/switching.py) | `PWMModulator` (centered duty + triangular carrier — kept public for unit tests, but `Inverter` owns one internally), `Inverter` (PWM compare + gate-driver dead-time via freewheel-diode model — one `step()` does both), `PMSMAbcModel` (thin FMU wrapper). |
+| [src/switching.py](src/switching.py) | `PWMModulator` (centered triangular-carrier compare with selectable zero-sequence injection: sine / svpwm / dpwmmax / dpwmmin / dpwm1 / auto-hybrid), `Inverter` (PWM compare + gate-driver dead-time via freewheel-diode model — one `step()` does both), `LCLFilter` (optional per-phase Python-side LCL low-pass between inverter terminals and motor, integrated by forward Euler at the simulator's inner step), `PMSMAbcModel` (thin FMU wrapper). |
 | [src/simulator.py](src/simulator.py) | `Simulator(motor, encoder, controller, inverter)` — the orchestrator. Context-managed (`with … as sim`) so the FMU is released on exit. `sim.run(TL_ref, T_s, T_f)` drives the multi-rate loop (`T_s` inner, `dt_ctrl = 1/f_pwm` for FOC, `Ts_enc` inside the encoder) and returns a `polars.DataFrame`. |
 | [src/plots.py](src/plots.py) | Twelve `figure_<name>(df, meta)` functions returning Plotly figures. Eight baseline: tracking, PI performance, FFT(ω_m), phase currents, phase voltages overlay, duties, encoder error, speed+saturation. Four PWM-noise diagnostics: `figure_vdq_roundtrip` (recomputes `v_d^actual, v_q^actual` from logged `v_a,v_b,v_c` + `theta_e_meas` and plots the error vs `v_dq^ref` — non-zero cycle-average implies inverter scaling bug; cycle-resolved trace is the dq-frame ripple the PI is fighting), `figure_iq_zoom` (i_q over ~5×T_pwm with carrier-valley guides), `figure_iq_fft` and `figure_iabc_fft` (log-magnitude spectra of i_q and i_a; switching ripple lines at 2·f_pwm / f_pwm visible). Palette is sourced once at import from `assets/style.css` (`--alva-text`, `--alva-coral-dark`, `--alva-text-muted` → `#1A1A1A`, `#E0543F`, `#5B5B5B`); references render dashed in the same colour as the measurement they pair with. |
-| [src/app.py](src/app.py) | Dash UI. Variant dropdown, *Power stage* (Vdc / f_pwm / t_dead), *Encoder*, *Trajectory*, *Timing* (dt_sim), *Current loop* (PI tuning radio: Modulus Optimum / Manual), collapsed *Debug* section with a "Bypass PWM" checkbox. Owns the parquet persistence (`_output_path_for`, `_read_metadata`, `_write_parquet`, `_default_TL_ref`) and the 4-component pipeline construction. Simulate button always runs a fresh sim and overwrites the canonical parquet; `params_hash` is recorded in metadata for traceability but is no longer used as a cache key. |
+| [src/app.py](src/app.py) | Dash UI. Variant dropdown, *Power stage* (Vdc / f_pwm / t_dead / PWM modulation mode: sine / svpwm / dpwmmax / dpwmmin / dpwm1 / auto), *Output filter (LCL)* (enable + cutoff target with derived L_f / C_f / R_d), *Encoder*, *Trajectory*, *Timing* (dt_sim), *Current loop* (PI tuning radio: Modulus Optimum / Skogestad / Manual), collapsed *Debug* section with an "Inverter mode" radio (`ideal` / `average` / `switching`, default `switching`). Owns the parquet persistence (`_output_path_for`, `_read_metadata`, `_write_parquet`, `_default_TL_ref`) and the 4-component pipeline construction. Simulate button always runs a fresh sim and overwrites the canonical parquet; `params_hash` is recorded in metadata for traceability but is no longer used as a cache key. |
 
 ## Equations
 
@@ -196,11 +199,14 @@ v_q_raw = PI_q + ff_q
                                   freeze both PI integrators
 ```
 
-**PI tuning rules** (both ship in [src/tuning.py](src/tuning.py))
+**PI tuning rules** (all three ship in [src/tuning.py](src/tuning.py))
 
 ```
 auto / pole-zero cancellation:   K_p = L_s·2π·bw_hz,   K_i = R_s·2π·bw_hz
 modulus optimum (T_σ = 1.5/f_pwm):  K_p = L_s·f_pwm/3,   K_i = R_s·f_pwm/3
+Skogestad SIMC (τ = 1.5/f_pwm, default T_c = τ):
+    K_p = L_s / (T_c + τ),  T_i = min(L_s/R_s, k1·(T_c + τ)),  K_i = K_p / T_i
+    (k1 = 1.44 default; k1 = 4 for textbook critically-damped disturbance step)
 ```
 
 **Centered sinusoidal PWM**
@@ -328,7 +334,7 @@ no cache-hit path, so any UI change is reflected immediately.
 | Post-inverter | `v_a`, `v_b`, `v_c` | float |
 | Saturation flags | `sat_d`, `sat_q` | bool |
 
-Metadata (`slimtorq.*` keys): `schema_version`, `params_hash`, `params_json`, `foc_kp`, `foc_ki`, `pi_mode`, `vdc`, `f_pwm`, `t_dead`, `ts_enc`, `b_est`, `motor_family`, `motor_name`, `motor_rated_voltage`.
+Metadata (`slimtorq.*` keys): `schema_version`, `params_hash`, `params_json`, `foc_kp`, `foc_ki`, `pi_mode`, `pi_tc`, `pi_k1`, `vdc`, `f_pwm`, `t_dead`, `ts_enc`, `inverter_mode`, `pwm_mode`, `filter_enabled`, `filter_fc`, `filter_lf`, `filter_cf`, `filter_rd`, `b_est`, `motor_family`, `motor_name`, `motor_rated_voltage`.
 
 ## Repo layout
 
@@ -346,11 +352,11 @@ slimtorq-control/
 ├── .temp/<fam>_<var>.parquet         most recent run, overwritten each Simulate (gitignored)
 └── src/
     ├── model.py                       Pydantic schema + catalog loader
-    ├── tuning.py                      auto_pi_gains_from_bw, modulus_optimum_tuning
+    ├── tuning.py                      auto_pi_gains_from_bw, modulus_optimum_tuning, skogestad_tuning
     ├── transform.py                   Clarke / Park / inverses
     ├── controller.py                  PIController, FOCController
     ├── encoder.py                     FluxEncoder, EncoderMeasurement
-    ├── switching.py                   PWMModulator (private), Inverter (PWM + dead time), PMSMAbcModel
+    ├── switching.py                   PWMModulator (6 modes), Inverter (PWM + dead time), LCLFilter, PMSMAbcModel
     ├── simulator.py                   Simulator(motor, encoder, controller, inverter).run(TL_ref, T_s, T_f)
     ├── debug_foc.py                   11-step FOC sanity-debug CLI
     ├── plots.py                       12 Plotly figures (8 baseline + 4 PWM-noise diagnostics; palette from style.css)

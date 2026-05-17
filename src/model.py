@@ -399,12 +399,42 @@ class InverterConfig(BaseModel):
 
     f_pwm lives here (not just on FocConfig) because the inverter owns the
     PWM modulator — the modulator's carrier frequency is a power-stage trait.
+
+    pwm_mode selects the zero-sequence-injection variant applied to the
+    duty calculation: "sine" (no injection), "svpwm" (third-harmonic
+    extended-linear-range), "dpwmmax"/"dpwmmin" (single-phase clamp to a
+    rail, ~33% switching-loss reduction), "dpwm1" (alternating clamp,
+    canonical DSVPWM), or "auto" (continuous SVPWM at low load, DPWM1
+    at high load, hysteresis at m_index = 0.45 / 0.55).
     """
 
     model_config = ConfigDict(frozen=True)
     Vdc: float  # DC-link voltage [V]
     f_pwm: float  # PWM carrier frequency [Hz]
     t_dead: float = 1.5e-6  # gate-driver blanking interval [s]; 0 disables
+    pwm_mode: str = "sine"
+
+
+class FilterConfig(BaseModel):
+    """Optional LCL output filter between inverter terminals and motor.
+
+    Component values are derived from a target cutoff frequency rather than
+    exposed directly — `derive_components(L_s, f_c_target)` returns
+    `(L_f, C_f, R_d)` with L_f one-quarter of the motor inductance (textbook
+    rule of thumb), C_f sized to put the LC corner at f_c_target, and R_d at
+    one-third of the characteristic impedance for moderate passive damping.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    enabled: bool = False
+    f_c_target: float = 5000.0  # target -3 dB corner [Hz]
+
+    @staticmethod
+    def derive_components(L_s: float, f_c_target: float) -> tuple[float, float, float]:
+        L_f = L_s / 4.0
+        C_f = 1.0 / ((2.0 * math.pi * f_c_target) ** 2 * L_f)
+        R_d = math.sqrt(L_f / C_f) / 3.0
+        return L_f, C_f, R_d
 
 
 class TLRef(BaseModel):
