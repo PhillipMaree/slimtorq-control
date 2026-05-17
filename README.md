@@ -3,19 +3,20 @@
 Python-side **Field-Oriented Control (FOC)** for an OpenModelica slotless-PMSM
 motor model, with a real **PWM + inverter** in the loop, dead-time emulation,
 modulus-optimum / pole-zero-cancellation current-loop tuning, and an
-interactive **Dash UI** that drives the simulation and renders the results
-from a Polars/Parquet cache.
+interactive **Dash UI** that re-runs the simulation on every click and
+persists the trace to a Polars/Parquet file (no cache read — every run is
+fresh).
 
 The motor is parameterised from [config/catalog.yaml](config/catalog.yaml) against the Alva
 **SlimTorq** lineup (9 families × ~12 winding configurations ≈ 86 entries).
 
 ## Architecture
 
-The simulation is built from **four physical components** — motor, encoder, controller, inverter — wired together by a `Simulator` orchestrator. The Dash app owns the cache-or-run gate and the parquet persistence.
+The simulation is built from **four physical components** — motor, encoder, controller, inverter — wired together by a `Simulator` orchestrator. The Dash app drives a fresh run on every Simulate click and writes the trace to parquet for inspection.
 
 ```mermaid
 flowchart LR
-    subgraph App["app.py — cache-or-run gate + plots"]
+    subgraph App["app.py — run + plots"]
         direction TB
         A1["params + blake2b hash"]
         A1 -->|"hash match in<br/>parquet metadata"| A2["pl.read_parquet"]
@@ -114,12 +115,12 @@ graph TD
     Simulator
     (4-component + run())"]
     plots["plots.py
-    8 Plotly figures
+    12 Plotly figures
     palette ← style.css"]
     css["assets/style.css
     palette source"]
     app["app.py
-    Dash UI + cache
+    Dash UI
     + parquet I/O"]
     parquet[".temp/
     *.parquet
@@ -159,7 +160,7 @@ graph TD
 | [src/switching.py](src/switching.py) | `PWMModulator` (centered duty + triangular carrier — kept public for unit tests, but `Inverter` owns one internally), `Inverter` (PWM compare + gate-driver dead-time via freewheel-diode model — one `step()` does both), `PMSMAbcModel` (thin FMU wrapper). |
 | [src/simulator.py](src/simulator.py) | `Simulator(motor, encoder, controller, inverter)` — the orchestrator. Context-managed (`with … as sim`) so the FMU is released on exit. `sim.run(TL_ref, T_s, T_f)` drives the multi-rate loop (`T_s` inner, `dt_ctrl = 1/f_pwm` for FOC, `Ts_enc` inside the encoder) and returns a `polars.DataFrame`. |
 | [src/plots.py](src/plots.py) | Twelve `figure_<name>(df, meta)` functions returning Plotly figures. Eight baseline: tracking, PI performance, FFT(ω_m), phase currents, phase voltages overlay, duties, encoder error, speed+saturation. Four PWM-noise diagnostics: `figure_vdq_roundtrip` (recomputes `v_d^actual, v_q^actual` from logged `v_a,v_b,v_c` + `theta_e_meas` and plots the error vs `v_dq^ref` — non-zero cycle-average implies inverter scaling bug; cycle-resolved trace is the dq-frame ripple the PI is fighting), `figure_iq_zoom` (i_q over ~5×T_pwm with carrier-valley guides), `figure_iq_fft` and `figure_iabc_fft` (log-magnitude spectra of i_q and i_a; switching ripple lines at 2·f_pwm / f_pwm visible). Palette is sourced once at import from `assets/style.css` (`--alva-text`, `--alva-coral-dark`, `--alva-text-muted` → `#1A1A1A`, `#E0543F`, `#5B5B5B`); references render dashed in the same colour as the measurement they pair with. |
-| [src/app.py](src/app.py) | Dash UI. Variant dropdown, *Power stage* (Vdc / f_pwm / t_dead), *Encoder*, *Trajectory*, *Timing* (dt_sim), *Current loop* (PI tuning radio: Modulus Optimum / Manual), collapsed *Debug* section with a "Bypass PWM" checkbox. Owns the parquet cache (`_output_path_for`, `_read_metadata`, `_write_parquet`, `_default_TL_ref`) and the 4-component pipeline construction. Simulate button hashes the full input dict (including `bypass_pwm`); cache-hit reloads parquet without re-running the FMU. |
+| [src/app.py](src/app.py) | Dash UI. Variant dropdown, *Power stage* (Vdc / f_pwm / t_dead), *Encoder*, *Trajectory*, *Timing* (dt_sim), *Current loop* (PI tuning radio: Modulus Optimum / Manual), collapsed *Debug* section with a "Bypass PWM" checkbox. Owns the parquet persistence (`_output_path_for`, `_read_metadata`, `_write_parquet`, `_default_TL_ref`) and the 4-component pipeline construction. Simulate button always runs a fresh sim and overwrites the canonical parquet; `params_hash` is recorded in metadata for traceability but is no longer used as a cache key. |
 
 ## Equations
 
@@ -309,12 +310,11 @@ uv run python src/app.py
 cd src && uv run python -m model
 ```
 
-The Dash app caches each run as a Polars/Parquet file at
+The Dash app persists each run as a Polars/Parquet file at
 `.temp/<family>_<variant>.parquet` (gitignored). The parquet's key-value metadata
-holds the 16-character blake2b hash of the canonical input dict.
-Re-clicking Simulate with unchanged inputs is a cache hit (no FMU run);
-changing any field — f_pwm, t_dead, PI tuning, encoder, trajectory, or
-the Debug-section *Bypass PWM* toggle — invalidates the hash and re-runs.
+holds the 16-character blake2b hash of the canonical input dict for
+traceability. Every Simulate click runs a fresh sim from scratch — there is
+no cache-hit path, so any UI change is reflected immediately.
 
 ## Output schema (parquet v2)
 
@@ -328,7 +328,7 @@ the Debug-section *Bypass PWM* toggle — invalidates the hash and re-runs.
 | Post-inverter | `v_a`, `v_b`, `v_c` | float |
 | Saturation flags | `sat_d`, `sat_q` | bool |
 
-Metadata (`slimtorq.*` keys): `schema_version`, `params_hash`, `params_json`, `foc_kp`, `foc_ki`, `pi_mode`, `vdc`, `f_pwm`, `t_dead`, `b_est`, `motor_family`, `motor_name`, `motor_rated_voltage`.
+Metadata (`slimtorq.*` keys): `schema_version`, `params_hash`, `params_json`, `foc_kp`, `foc_ki`, `pi_mode`, `vdc`, `f_pwm`, `t_dead`, `ts_enc`, `b_est`, `motor_family`, `motor_name`, `motor_rated_voltage`.
 
 ## Repo layout
 
@@ -343,7 +343,7 @@ slimtorq-control/
 │   ├── Alva.mo
 │   ├── build_fmu.mos
 │   └── SlotlessPMSM_abc.fmu           built artifact (regenerable)
-├── .temp/<fam>_<var>.parquet         per-run parquet caches (gitignored)
+├── .temp/<fam>_<var>.parquet         most recent run, overwritten each Simulate (gitignored)
 └── src/
     ├── model.py                       Pydantic schema + catalog loader
     ├── tuning.py                      auto_pi_gains_from_bw, modulus_optimum_tuning
@@ -354,5 +354,5 @@ slimtorq-control/
     ├── simulator.py                   Simulator(motor, encoder, controller, inverter).run(TL_ref, T_s, T_f)
     ├── debug_foc.py                   11-step FOC sanity-debug CLI
     ├── plots.py                       12 Plotly figures (8 baseline + 4 PWM-noise diagnostics; palette from style.css)
-    └── app.py                         Dash UI + parquet cache + pipeline construction
+    └── app.py                         Dash UI + parquet persistence + pipeline construction
 ```

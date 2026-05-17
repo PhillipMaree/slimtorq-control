@@ -26,8 +26,10 @@ body {
 
 .alva-panel {
     padding: 0;
-    width: 25vw;            /* 1:3 split with the plot panel */
-    min-width: 22rem;       /* don't squash the inputs on narrow screens */
+    /* Sized to fit `label (10rem) + input (~5rem, enough for "0.0000015") +
+       body padding (1.25rem each side) + spinner buttons (~1rem)`. Narrower
+       than 25vw so it doesn't dominate the screen. */
+    width: 25rem;
     box-sizing: border-box;
     border-right: 1px solid var(--alva-border);
     /* Pin the config to the viewport top so it stays put while the page
@@ -104,18 +106,23 @@ body {
 .alva-row {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     margin: 0.25rem 0;
 }
 
 .alva-row label {
-    width: 10rem;
+    width: 12rem;
     font-size: 0.86rem;
     color: var(--alva-text);
 }
 
 .alva-row input[type="number"],
 .alva-row input[type="text"] {
-    width: 8rem;
+    /* Fill the rest of the row so the `+` spinner sits flush against the
+       panel's right edge instead of leaving empty space. */
+    flex: 1;
+    min-width: 0;
+    box-sizing: border-box;
     padding: 0.3rem 0.5rem;
     border: 1px solid var(--alva-border);
     border-radius: 0.25rem;

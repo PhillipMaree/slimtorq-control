@@ -2,15 +2,13 @@
 
 Run with `python src/app.py`. Opens at http://localhost:8080.
 
-The Simulate button computes a stable hash over the full input dict (variant +
-power-stage + encoder + trajectory + timing + PI tuning + bypass-PWM flag).
-Vdc is not in the dict — it's derived from `motor.rated_voltage` per variant.
-If a parquet file at the canonical output path already carries that hash in
-its `slimtorq.params_hash` metadata, the FMU run is skipped (cache hit) and
-the file is reloaded. Otherwise the four-component pipeline (motor / encoder
-/ controller / inverter) is built inside a `with Simulator(...) as sim:`
-block, `sim.run()` is invoked, the parquet is overwritten, and the eight
-Plotly figures are re-rendered from the new data.
+Every Simulate click runs a fresh simulation — there is no cache read. The
+four-component pipeline (motor / encoder / controller / inverter) is built
+inside a `with Simulator(...) as sim:` block, `sim.run()` is invoked, the
+parquet at the canonical output path is overwritten with the new trace and
+its `slimtorq.*` metadata (including a `params_hash` for traceability, not
+for cache lookup), and the Plotly figures are re-rendered. Vdc is derived
+from `motor.rated_voltage` per variant, not a UI input.
 """
 
 from __future__ import annotations
@@ -35,7 +33,7 @@ from tuning import modulus_optimum_tuning
 
 ASSETS_DIR = str(Path(__file__).resolve().parent.parent / "assets")
 _OUTPUT_DIR = Path(__file__).resolve().parent.parent / ".temp"
-_SCHEMA_VERSION = "3"
+_SCHEMA_VERSION = "4"
 
 CATALOG = load_catalog()
 DEFAULT_VARIANT = "STM-75-20-L-4Y"
@@ -65,6 +63,7 @@ def _write_parquet(
     Vdc: float,
     f_pwm: float,
     t_dead: float,
+    ts_enc: float,
     pi_mode: str,
     params_json: str,
     params_hash: str,
@@ -94,6 +93,7 @@ def _write_parquet(
         b"slimtorq.vdc": f"{Vdc:.10g}".encode(),
         b"slimtorq.f_pwm": f"{f_pwm:.10g}".encode(),
         b"slimtorq.t_dead": f"{t_dead:.10g}".encode(),
+        b"slimtorq.ts_enc": f"{ts_enc:.10g}".encode(),
         b"slimtorq.b_est": (b"null" if b_est is None else f"{b_est:.10g}".encode()),
         b"slimtorq.motor_family": motor.family.encode(),
         b"slimtorq.motor_name": motor.name.encode(),
@@ -477,7 +477,7 @@ def simulate(
     bypass_pwm_value,
 ):
     if variant is None:
-        return *([no_update] * 8), "no variant selected"
+        return *([no_update] * 12), "no variant selected"
     # Dash returns None for any numeric input whose value is outside [min, max].
     # Report which fields are out of range instead of crashing on float(None).
     required = {
@@ -501,9 +501,9 @@ def simulate(
     }
     missing = [k for k, v in required.items() if v is None]
     if missing:
-        return *([no_update] * 8), f"input(s) empty or out of range: {', '.join(missing)}"
+        return *([no_update] * 12), f"input(s) empty or out of range: {', '.join(missing)}"
     if t_step >= t_end:
-        return *([no_update] * 8), f"t_step ({t_step}) must be < t_end ({t_end})"
+        return *([no_update] * 12), f"t_step ({t_step}) must be < t_end ({t_end})"
 
     motor_cfg = CATALOG[variant]
     Vdc = float(motor_cfg.rated_voltage)
@@ -539,84 +539,73 @@ def simulate(
     h = _params_hash(params_json)
     out_path = _output_path_for(motor_cfg)
 
-    cache_hit = False
-    if out_path.exists():
-        try:
-            existing = _read_metadata(out_path)
-            cache_hit = existing.get("slimtorq.params_hash") == h
-        except Exception:
-            cache_hit = False
+    encoder_cfg = EncoderConfig(
+        n_bits=int(n_bits),
+        theta_offset=float(theta_offset),
+        A1=float(A1),
+        k1=int(k1),
+        phi1=float(phi1),
+        A2=float(A2),
+        k2=int(k2),
+        phi2=float(phi2),
+        A3=float(A3),
+        k3=int(k3),
+        phi3=float(phi3),
+        Ts_enc=float(ts_enc),
+    )
+    TL = _default_TL_ref(motor_cfg, t_end=float(t_end), t_step=float(t_step), frac=float(t_step_frac))
 
-    if cache_hit:
-        df = pl.read_parquet(out_path)
+    # Pick Kp/Ki per pi_mode: manual passes through, otherwise modulus-optimum.
+    use_manual = pi_mode == "manual" and Kp is not None and Ki is not None
+    if use_manual:
+        Kp_used, Ki_used = float(Kp), float(Ki)
     else:
-        encoder_cfg = EncoderConfig(
-            n_bits=int(n_bits),
-            theta_offset=float(theta_offset),
-            A1=float(A1),
-            k1=int(k1),
-            phi1=float(phi1),
-            A2=float(A2),
-            k2=int(k2),
-            phi2=float(phi2),
-            A3=float(A3),
-            k3=int(k3),
-            phi3=float(phi3),
-            Ts_enc=float(ts_enc),
-        )
-        TL = _default_TL_ref(motor_cfg, t_end=float(t_end), t_step=float(t_step), frac=float(t_step_frac))
+        Kp_used, Ki_used = modulus_optimum_tuning(motor_cfg.R_s, motor_cfg.L_s, float(f_pwm))
 
-        # Pick Kp/Ki per pi_mode: manual passes through, otherwise modulus-optimum.
-        use_manual = pi_mode == "manual" and Kp is not None and Ki is not None
-        if use_manual:
-            Kp_used, Ki_used = float(Kp), float(Ki)
-        else:
-            Kp_used, Ki_used = modulus_optimum_tuning(motor_cfg.R_s, motor_cfg.L_s, float(f_pwm))
+    foc_cfg = FocConfig(
+        R_s=motor_cfg.R_s,
+        L_s=motor_cfg.L_s,
+        psi_m=motor_cfg.psi_m,
+        p=motor_cfg.p,
+        Vdc=Vdc,
+        f_pwm=float(f_pwm),
+        Kp=Kp_used,
+        Ki=Ki_used,
+    )
+    controller = FOCController(foc_cfg)
+    inverter = Inverter(InverterConfig(Vdc=Vdc, f_pwm=float(f_pwm), t_dead=float(t_dead)))
+    encoder = EncoderMeasurement(FluxEncoder(encoder_cfg), p=motor_cfg.p)
+    motor = PMSMAbcModel(motor_cfg)
 
-        foc_cfg = FocConfig(
-            R_s=motor_cfg.R_s,
-            L_s=motor_cfg.L_s,
-            psi_m=motor_cfg.psi_m,
-            p=motor_cfg.p,
-            Vdc=Vdc,
-            f_pwm=float(f_pwm),
-            Kp=Kp_used,
-            Ki=Ki_used,
-        )
-        controller = FOCController(foc_cfg)
-        inverter = Inverter(InverterConfig(Vdc=Vdc, f_pwm=float(f_pwm), t_dead=float(t_dead)))
-        encoder = EncoderMeasurement(FluxEncoder(encoder_cfg), p=motor_cfg.p)
-        motor = PMSMAbcModel(motor_cfg)
+    try:
+        with Simulator(motor, encoder, controller, inverter) as sim:
+            df = sim.run(
+                TL,
+                T_s=None if dt_sim is None else float(dt_sim),
+                T_f=None if Tf is None else float(Tf),
+                bypass_pwm=bypass_pwm,
+            )
+    except Exception as e:
+        return *([no_update] * 12), f"error: {e}"
 
-        try:
-            with Simulator(motor, encoder, controller, inverter) as sim:
-                df = sim.run(
-                    TL,
-                    T_s=None if dt_sim is None else float(dt_sim),
-                    T_f=None if Tf is None else float(Tf),
-                    bypass_pwm=bypass_pwm,
-                )
-        except Exception as e:
-            return *([no_update] * 8), f"error: {e}"
-
-        _write_parquet(
-            df,
-            motor=motor_cfg,
-            controller=controller,
-            Vdc=Vdc,
-            f_pwm=float(f_pwm),
-            t_dead=float(t_dead),
-            pi_mode=pi_mode,
-            params_json=params_json,
-            params_hash=h,
-            out_path=out_path,
-        )
+    _write_parquet(
+        df,
+        motor=motor_cfg,
+        controller=controller,
+        Vdc=Vdc,
+        f_pwm=float(f_pwm),
+        t_dead=float(t_dead),
+        ts_enc=float(ts_enc),
+        pi_mode=pi_mode,
+        params_json=params_json,
+        params_hash=h,
+        out_path=out_path,
+    )
 
     meta = _read_metadata(out_path)
     figs = _render_all(df, meta)
-    state = "cache hit" if cache_hit else "ran sim"
     status = (
-        f"{state}: {out_path.name}   "
+        f"ran sim: {out_path.name}   "
         f"hash={h}   rows={df.height}   "
         f"Kp={meta.get('slimtorq.foc_kp', '?')}  "
         f"Ki={meta.get('slimtorq.foc_ki', '?')}  "

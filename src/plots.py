@@ -403,17 +403,27 @@ def figure_encoder_error(df: pl.DataFrame, meta: dict[str, str]) -> go.Figure:
     zero. We wrap the difference into [-\pi, \pi) so the result reflects pure
     encoder error: ZOH sample-and-hold latency (dominant at speed:
     \omega \cdot T_s^{enc}), cyclic harmonics, and N-bit quantization.
+
+    Overlay: the ZOH-only bound \omega_m^{true} \cdot T_s^{enc}. The measured
+    sawtooth rides between 0 and this bound (sign follows rotor direction).
+    Any excursion outside the band is cyclic harmonic + quantization + offset.
     """
     t = _t_ms(df)
     diff = (df["theta_m_true"] - df["theta_m_meas"]).to_numpy()
     err_wrapped = ((diff + np.pi) % (2.0 * np.pi)) - np.pi
     err_mrad = err_wrapped * 1e3
+
+    ts_enc = float(meta.get("slimtorq.ts_enc", "1e-4"))
+    omega = df["omega_m_true"].to_numpy()
+    zoh_bound_mrad = omega * ts_enc * 1e3
+
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=t, y=err_mrad, name=r"$\theta_m^{\,true} - \theta_m^{\,meas}$", line=_line(0)))
+    fig.add_trace(go.Scatter(x=t, y=zoh_bound_mrad, name=r"$\omega_m^{\,true} \cdot T_s^{\,enc}$", line=_line(1, ref=True)))
     fig.add_hline(y=0.0, line=dict(width=0.5, color="black"))
     fig.update_xaxes(title_text=r"$t \;[\mathrm{ms}]$")
     fig.update_yaxes(title_text=r"$\mathrm{wrap}(\theta_m^{\,true} - \theta_m^{\,meas}) \;[\mathrm{mrad}]$")
-    fig.update_layout(title=_title(meta, "Encoder error (shortest-distance)"), height=450, hovermode="x unified", margin=_FIG_MARGIN, legend=_FIG_LEGEND)
+    fig.update_layout(title=_title(meta, "Encoder error (shortest-distance) + ZOH bound"), height=450, hovermode="x unified", margin=_FIG_MARGIN, legend=_FIG_LEGEND)
     return fig
 
 
