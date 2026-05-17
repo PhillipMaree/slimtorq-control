@@ -1,6 +1,6 @@
 """Plotly figures for the Dash app. Pure data -> figure; no I/O.
 
-Each function takes a polars DataFrame (loaded from output/data/*.parquet) and
+Each function takes a polars DataFrame (loaded from .temp/*.parquet) and
 the decoded slimtorq.* metadata dict, and returns a plotly.graph_objects.Figure.
 
 Titles, axis labels, and trace names use MathJax LaTeX delimiters $…$ so

@@ -34,7 +34,7 @@ from switching import Inverter, PMSMAbcModel
 from tuning import modulus_optimum_tuning
 
 ASSETS_DIR = str(Path(__file__).resolve().parent.parent / "assets")
-_OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
+_OUTPUT_DIR = Path(__file__).resolve().parent.parent / ".temp"
 _SCHEMA_VERSION = "2"
 
 CATALOG = load_catalog()
@@ -47,7 +47,7 @@ TWO_PI = 2.0 * math.pi
 # Live here because app.py is the only consumer.
 # ----------------------------------------------------------------------------
 def _output_path_for(motor: PmsmModel) -> Path:
-    """Canonical output path: output/<family>_<name>.parquet."""
+    """Canonical output path: .temp/<family>_<name>.parquet."""
     fname = f"{motor.family.replace(' ', '_')}_{motor.name}.parquet"
     return _OUTPUT_DIR / fname
 

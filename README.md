@@ -121,8 +121,9 @@ graph TD
     app["app.py
     Dash UI + cache
     + parquet I/O"]
-    parquet["output/
-    *.parquet"]
+    parquet[".temp/
+    *.parquet
+    (gitignored)"]
 
     catalog --> model
     model --> controller
@@ -255,7 +256,7 @@ STM-130-27-L-4Y-A-18A-A0-001
 ```
 
 The short five-segment form (`STM-75-20-L-4Y`) is the catalog key and the
-filename stem for cached parquets in [output/](output/). The
+filename stem for cached parquets in `.temp/` (gitignored). The
 winding code's connection letter (`Y` vs `D`) drives the phase-impedance
 decomposition below.
 
@@ -309,7 +310,7 @@ cd src && uv run python -m model
 ```
 
 The Dash app caches each run as a Polars/Parquet file at
-`output/<family>_<variant>.parquet`. The parquet's key-value metadata
+`.temp/<family>_<variant>.parquet` (gitignored). The parquet's key-value metadata
 holds the 16-character blake2b hash of the canonical input dict.
 Re-clicking Simulate with unchanged inputs is a cache hit (no FMU run);
 changing any field — f_pwm, t_dead, PI tuning, encoder, trajectory, or
@@ -342,7 +343,7 @@ slimtorq-control/
 │   ├── Alva.mo
 │   ├── build_fmu.mos
 │   └── SlotlessPMSM_abc.fmu           built artifact (regenerable)
-├── output/<fam>_<var>.parquet         per-run parquet caches
+├── .temp/<fam>_<var>.parquet         per-run parquet caches (gitignored)
 └── src/
     ├── model.py                       Pydantic schema + catalog loader
     ├── tuning.py                      auto_pi_gains_from_bw, modulus_optimum_tuning
