@@ -2,12 +2,15 @@
 
 Run with `python src/app.py`. Opens at http://localhost:8080.
 
-The Simulate button computes a stable hash over the full 24-field input dict.
-(Vdc is not in the dict — it's derived from `motor.rated_voltage` per variant.)
+The Simulate button computes a stable hash over the full input dict (variant +
+power-stage + encoder + trajectory + timing + PI tuning + bypass-PWM flag).
+Vdc is not in the dict — it's derived from `motor.rated_voltage` per variant.
 If a parquet file at the canonical output path already carries that hash in
 its `slimtorq.params_hash` metadata, the FMU run is skipped (cache hit) and
-the file is reloaded. Otherwise main.run() is invoked, the file is
-overwritten, and the eight Plotly figures are re-rendered from the new data.
+the file is reloaded. Otherwise the four-component pipeline (motor / encoder
+/ controller / inverter) is built inside a `with Simulator(...) as sim:`
+block, `sim.run()` is invoked, the parquet is overwritten, and the eight
+Plotly figures are re-rendered from the new data.
 """
 
 from __future__ import annotations
@@ -17,24 +20,99 @@ import json
 import math
 from pathlib import Path
 
+import numpy as np
 import polars as pl
+import pyarrow.parquet as pq
 from dash import Dash, Input, Output, State, dcc, html, no_update
 
 import plots
-from main import (
-    default_TL_ref,
-    output_path_for,
-    read_metadata,
-    run,
-)
-from model import EncoderConfig, load_catalog
+from controller import FOCController
+from encoder import EncoderMeasurement, FluxEncoder
+from model import EncoderConfig, FocConfig, InverterConfig, PmsmModel, TLRef, load_catalog
+from simulator import Simulator
+from switching import Inverter, PMSMAbcModel
 from tuning import modulus_optimum_tuning
 
 ASSETS_DIR = str(Path(__file__).resolve().parent.parent / "assets")
+_OUTPUT_DIR = Path(__file__).resolve().parent.parent / "output"
+_SCHEMA_VERSION = "2"
 
 CATALOG = load_catalog()
 DEFAULT_VARIANT = "STM-75-20-L-4Y"
 TWO_PI = 2.0 * math.pi
+
+
+# ----------------------------------------------------------------------------
+# Persistence helpers (parquet I/O + canonical paths + default trajectory).
+# Live here because app.py is the only consumer.
+# ----------------------------------------------------------------------------
+def _output_path_for(motor: PmsmModel) -> Path:
+    """Canonical output path: output/<family>_<name>.parquet."""
+    fname = f"{motor.family.replace(' ', '_')}_{motor.name}.parquet"
+    return _OUTPUT_DIR / fname
+
+
+def _read_metadata(path: Path) -> dict[str, str]:
+    raw = pq.read_metadata(str(path)).metadata or {}
+    return {k.decode(): v.decode() for k, v in raw.items() if k.decode().startswith("slimtorq.")}
+
+
+def _write_parquet(
+    df: pl.DataFrame,
+    *,
+    motor: PmsmModel,
+    controller: FOCController,
+    Vdc: float,
+    f_pwm: float,
+    t_dead: float,
+    pi_mode: str,
+    params_json: str,
+    params_hash: str,
+    out_path: Path,
+) -> None:
+    """Persist a Simulator.run() DataFrame as parquet with slimtorq.* metadata.
+
+    b_est (steady-state viscous-friction estimate) is derived inline from the
+    trailing 20% of the run: B ~= mean(T_e - TL_ref) / mean(omega_m_true).
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    n = df.height
+    tail = df.slice(int(0.8 * n), n - int(0.8 * n))
+    mean_omega = float(tail["omega_m_true"].mean())
+    mean_dT = float((tail["T_e"] - tail["TL_ref"]).mean())
+    b_est: float | None = mean_dT / mean_omega if abs(mean_omega) > 1e-3 else None
+
+    table = df.to_arrow()
+    meta = {
+        b"slimtorq.schema_version": _SCHEMA_VERSION.encode(),
+        b"slimtorq.params_hash": params_hash.encode(),
+        b"slimtorq.params_json": params_json.encode(),
+        b"slimtorq.foc_kp": f"{controller.Kp:.10g}".encode(),
+        b"slimtorq.foc_ki": f"{controller.Ki:.10g}".encode(),
+        b"slimtorq.pi_mode": pi_mode.encode(),
+        b"slimtorq.vdc": f"{Vdc:.10g}".encode(),
+        b"slimtorq.f_pwm": f"{f_pwm:.10g}".encode(),
+        b"slimtorq.t_dead": f"{t_dead:.10g}".encode(),
+        b"slimtorq.b_est": (b"null" if b_est is None else f"{b_est:.10g}".encode()),
+        b"slimtorq.motor_family": motor.family.encode(),
+        b"slimtorq.motor_name": motor.name.encode(),
+        b"slimtorq.motor_rated_voltage": f"{motor.rated_voltage:.6g}".encode(),
+    }
+    table = table.replace_schema_metadata(meta)
+    pq.write_table(table, str(out_path))
+
+
+def _default_TL_ref(motor: PmsmModel, t_end: float, t_step: float, frac: float) -> TLRef:
+    """Default TL_ref: zero until t_step, then step to frac · te_peak_1s, hold to t_end.
+
+    `frac` is interpreted against the catalog's 1-second peak torque so the
+    user-facing knob has the meaning "fraction of max torque the motor can
+    briefly produce." Defaults around 0.5-0.7 are realistic; values > 1.0 push
+    past the catalog peak and will hit the FOC's vector-saturation limit.
+    """
+    amp = frac * motor.te_peak_1s
+    return TLRef(ref=np.array([0.0, amp]), t=np.array([t_step, t_end]))
 
 
 # ----------------------------------------------------------------------------
@@ -208,6 +286,20 @@ CONFIG_PANEL = html.Div(
                         _num("Ki", round(ki0, 6), step=1e-3, mn=0.0, suffix="V/(A·s)", disabled=True, label=_sub("K", "i")),
                     ],
                 ),
+                # Collapsed Debug section — diagnostic toggles that bypass parts
+                # of the normal pipeline. Native <details>/<summary> so it stays
+                # closed by default and doesn't clutter the daily UI.
+                html.Details(
+                    className="alva-section alva-debug",
+                    children=[
+                        html.Summary("Debug"),
+                        dcc.Checklist(
+                            id="bypass_pwm",
+                            options=[{"label": " Bypass PWM (feed v_abc_ref straight into FMU — diagnostic only)", "value": "on"}],
+                            value=[],
+                        ),
+                    ],
+                ),
                 html.Button("Simulate", id="simulate", n_clicks=0, className="alva-btn-simulate"),
                 html.Div(id="status", className="alva-status"),
             ],
@@ -342,9 +434,36 @@ def _render_all(df: pl.DataFrame, meta: dict[str, str]):
     State("pi_mode", "value"),
     State("Kp", "value"),
     State("Ki", "value"),
+    State("bypass_pwm", "value"),
     prevent_initial_call=True,
 )
-def simulate(n_clicks, variant, f_pwm, t_dead, n_bits, theta_offset, A1, k1, phi1, A2, k2, phi2, A3, k3, phi3, ts_enc, dt_sim, t_end, t_step, t_step_frac, Tf, pi_mode, Kp, Ki):
+def simulate(
+    n_clicks,
+    variant,
+    f_pwm,
+    t_dead,
+    n_bits,
+    theta_offset,
+    A1,
+    k1,
+    phi1,
+    A2,
+    k2,
+    phi2,
+    A3,
+    k3,
+    phi3,
+    ts_enc,
+    dt_sim,
+    t_end,
+    t_step,
+    t_step_frac,
+    Tf,
+    pi_mode,
+    Kp,
+    Ki,
+    bypass_pwm_value,
+):
     if variant is None:
         return *([no_update] * 8), "no variant selected"
     # Dash returns None for any numeric input whose value is outside [min, max].
@@ -374,8 +493,9 @@ def simulate(n_clicks, variant, f_pwm, t_dead, n_bits, theta_offset, A1, k1, phi
     if t_step >= t_end:
         return *([no_update] * 8), f"t_step ({t_step}) must be < t_end ({t_end})"
 
-    motor = CATALOG[variant]
-    Vdc = float(motor.rated_voltage)
+    motor_cfg = CATALOG[variant]
+    Vdc = float(motor_cfg.rated_voltage)
+    bypass_pwm = bool(bypass_pwm_value) and "on" in (bypass_pwm_value or [])
 
     params = {
         "variant_name": variant,
@@ -401,20 +521,23 @@ def simulate(n_clicks, variant, f_pwm, t_dead, n_bits, theta_offset, A1, k1, phi
         "pi_mode": pi_mode,
         "Kp": float(Kp) if Kp is not None else None,
         "Ki": float(Ki) if Ki is not None else None,
+        "bypass_pwm": bypass_pwm,
     }
     params_json = _canonical_params_json(params)
     h = _params_hash(params_json)
-    out_path = output_path_for(motor)
+    out_path = _output_path_for(motor_cfg)
 
     cache_hit = False
     if out_path.exists():
         try:
-            existing = read_metadata(out_path)
+            existing = _read_metadata(out_path)
             cache_hit = existing.get("slimtorq.params_hash") == h
         except Exception:
             cache_hit = False
 
-    if not cache_hit:
+    if cache_hit:
+        df = pl.read_parquet(out_path)
+    else:
         encoder_cfg = EncoderConfig(
             n_bits=int(n_bits),
             theta_offset=float(theta_offset),
@@ -429,33 +552,55 @@ def simulate(n_clicks, variant, f_pwm, t_dead, n_bits, theta_offset, A1, k1, phi
             phi3=float(phi3),
             Ts_enc=float(ts_enc),
         )
-        TL = default_TL_ref(motor, t_end=float(t_end), t_step=float(t_step), frac=float(t_step_frac))
+        TL = _default_TL_ref(motor_cfg, t_end=float(t_end), t_step=float(t_step), frac=float(t_step_frac))
 
-        # Pick Kp/Ki per pi_mode. For auto/MO let main.run derive them from
-        # bw_hz / f_pwm via FocConfig's None-default; for manual pass through.
+        # Pick Kp/Ki per pi_mode: manual passes through, otherwise modulus-optimum.
         use_manual = pi_mode == "manual" and Kp is not None and Ki is not None
+        if use_manual:
+            Kp_used, Ki_used = float(Kp), float(Ki)
+        else:
+            Kp_used, Ki_used = modulus_optimum_tuning(motor_cfg.R_s, motor_cfg.L_s, float(f_pwm))
+
+        foc_cfg = FocConfig(
+            R_s=motor_cfg.R_s,
+            L_s=motor_cfg.L_s,
+            psi_m=motor_cfg.psi_m,
+            p=motor_cfg.p,
+            Vdc=Vdc,
+            f_pwm=float(f_pwm),
+            Kp=Kp_used,
+            Ki=Ki_used,
+        )
+        controller = FOCController(foc_cfg)
+        inverter = Inverter(InverterConfig(Vdc=Vdc, f_pwm=float(f_pwm), t_dead=float(t_dead)))
+        encoder = EncoderMeasurement(FluxEncoder(encoder_cfg), p=motor_cfg.p)
+        motor = PMSMAbcModel(motor_cfg)
+
         try:
-            run(
-                motor=motor,
-                encoder_cfg=encoder_cfg,
-                TL_ref=TL,
-                out_path=out_path,
-                params_json=params_json,
-                params_hash=h,
-                pi_mode=pi_mode,
-                Vdc=Vdc,
-                f_pwm=float(f_pwm),
-                t_dead=float(t_dead),
-                dt_sim=None if dt_sim is None else float(dt_sim),
-                Tf=None if Tf is None else float(Tf),
-                Kp=float(Kp) if use_manual else modulus_optimum_tuning(motor.R_s, motor.L_s, float(f_pwm))[0],
-                Ki=float(Ki) if use_manual else modulus_optimum_tuning(motor.R_s, motor.L_s, float(f_pwm))[1],
-            )
+            with Simulator(motor, encoder, controller, inverter) as sim:
+                df = sim.run(
+                    TL,
+                    T_s=None if dt_sim is None else float(dt_sim),
+                    T_f=None if Tf is None else float(Tf),
+                    bypass_pwm=bypass_pwm,
+                )
         except Exception as e:
             return *([no_update] * 8), f"error: {e}"
 
-    df = pl.read_parquet(out_path)
-    meta = read_metadata(out_path)
+        _write_parquet(
+            df,
+            motor=motor_cfg,
+            controller=controller,
+            Vdc=Vdc,
+            f_pwm=float(f_pwm),
+            t_dead=float(t_dead),
+            pi_mode=pi_mode,
+            params_json=params_json,
+            params_hash=h,
+            out_path=out_path,
+        )
+
+    meta = _read_metadata(out_path)
     figs = _render_all(df, meta)
     state = "cache hit" if cache_hit else "ran sim"
     status = (

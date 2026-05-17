@@ -395,10 +395,15 @@ class FocConfig(BaseModel):
 
 
 class InverterConfig(BaseModel):
-    """Three-phase voltage-source inverter parameters."""
+    """Three-phase voltage-source inverter parameters.
+
+    f_pwm lives here (not just on FocConfig) because the inverter owns the
+    PWM modulator — the modulator's carrier frequency is a power-stage trait.
+    """
 
     model_config = ConfigDict(frozen=True)
     Vdc: float  # DC-link voltage [V]
+    f_pwm: float  # PWM carrier frequency [Hz]
     t_dead: float = 1.5e-6  # gate-driver blanking interval [s]; 0 disables
 
 

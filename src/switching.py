@@ -1,14 +1,17 @@
-"""Switching power stage: PWM modulator, inverter (with dead-time), PMSM wrapper.
+"""Switching power stage: inverter (PWM + dead-time) and PMSM FMU wrapper.
 
 PWMModulator: centered duty conversion + triangular-carrier comparison.
-Inverter:     2-level VSI; emulates gate-driver dead-time using i_abc sign.
+              Lives inside `Inverter` — kept as a standalone class for unit
+              tests and direct inspection.
+Inverter:     Power stage = PWM modulator + 2-level VSI with gate-driver
+              dead-time emulation. One `step()` call does both.
 PMSMAbcModel: thin wrapper around the OpenModelica SlotlessPMSM_abc FMU.
 
 The signal chain is
 
-    v_a_ref, v_b_ref, v_c_ref  ──► PWMModulator ──► d_abc, s_abc
-    s_abc, i_abc, Vdc, dt      ──► Inverter     ──► v_a, v_b, v_c (post-inverter)
-    v_a, v_b, v_c, T_L, dt     ──► PMSMAbcModel ──► (advances FMU one step)
+    v_a_ref, v_b_ref, v_c_ref, i_abc, t, dt  ──► Inverter ──►
+        d_abc, s_abc, v_a, v_b, v_c (post-inverter)
+    v_a, v_b, v_c, T_L, dt                   ──► PMSMAbcModel ──► (FMU step)
 
 so the FOC's continuous voltage refs are converted to switching phase voltages
 that the PMSM integrates. Phase currents acquire the textbook triangular ripple
@@ -63,10 +66,10 @@ class PWMModulator:
 
 
 # ---------------------------------------------------------------------------
-# Inverter with dead-time emulation
+# Inverter (PWM modulator + 2-level VSI with dead-time emulation)
 # ---------------------------------------------------------------------------
 class Inverter:
-    """2-level VSI with optional gate-driver dead-time emulation.
+    """Power stage: PWM modulator + 2-level VSI with dead-time emulation.
 
     Outside the dead-time window, each phase voltage relative to the DC-link
     midpoint is
@@ -92,11 +95,32 @@ class Inverter:
 
     def __init__(self, cfg: InverterConfig) -> None:
         self.cfg = cfg
+        self.Vdc = float(cfg.Vdc)
         self.t_dead = float(cfg.t_dead)
+        self._pwm = PWMModulator(f_pwm=cfg.f_pwm)
         self._prev_s = [-1, -1, -1]  # force "edge" on first call
         self._t_since_edge = [math.inf, math.inf, math.inf]
 
-    def step(self, s_a: int, s_b: int, s_c: int, i_a: float, i_b: float, i_c: float, Vdc: float, dt: float) -> tuple[float, float, float]:
+    def step(
+        self,
+        v_a_ref: float,
+        v_b_ref: float,
+        v_c_ref: float,
+        i_a: float,
+        i_b: float,
+        i_c: float,
+        t: float,
+        dt: float,
+    ) -> tuple[float, float, float, int, int, int, float, float, float]:
+        """One power-stage tick: PWM compare + dead-time-aware leg voltages.
+
+        Returns (d_a, d_b, d_c, s_a, s_b, s_c, v_a, v_b, v_c).
+        """
+        d_a, d_b, d_c, s_a, s_b, s_c = self._pwm.step(v_a_ref, v_b_ref, v_c_ref, self.Vdc, t, dt)
+        v_a, v_b, v_c = self._dead_time_step(s_a, s_b, s_c, i_a, i_b, i_c, dt)
+        return d_a, d_b, d_c, s_a, s_b, s_c, v_a, v_b, v_c
+
+    def _dead_time_step(self, s_a: int, s_b: int, s_c: int, i_a: float, i_b: float, i_c: float, dt: float) -> tuple[float, float, float]:
         s = (s_a, s_b, s_c)
         i = (i_a, i_b, i_c)
         v = [0.0, 0.0, 0.0]
@@ -106,9 +130,9 @@ class Inverter:
                 self._prev_s[k] = s[k]
             if self.t_dead > 0.0 and self._t_since_edge[k] < self.t_dead:
                 sign_i = 1.0 if i[k] > 0.0 else (-1.0 if i[k] < 0.0 else 0.0)
-                v[k] = -sign_i * Vdc * 0.5
+                v[k] = -sign_i * self.Vdc * 0.5
             else:
-                v[k] = (s[k] - 0.5) * Vdc
+                v[k] = (s[k] - 0.5) * self.Vdc
             self._t_since_edge[k] += dt
         return v[0], v[1], v[2]
 

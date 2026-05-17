@@ -9,59 +9,43 @@ from a Polars/Parquet cache.
 The motor is parameterised from [config/catalog.yaml](config/catalog.yaml) against the Alva
 **SlimTorq** lineup (9 families × ~12 winding configurations ≈ 86 entries).
 
-## Signal chain
+## Architecture
+
+The simulation is built from **four physical components** — motor, encoder, controller, inverter — wired together by a `Simulator` orchestrator. The Dash app owns the cache-or-run gate and the parquet persistence.
 
 ```mermaid
 flowchart LR
-    subgraph CTRL["controller — runs at dt_ctrl = T_pwm"]
-        FOC["FOCController.step()
-        i_abc + θ_e + ω_e + (i_d_ref, i_q_ref)
-        → Clarke → Park
-        → PI(d), PI(q)
-        → + dq decoupling + BEMF feedforward
-        → vector sat (|v_dq| ≤ Vdc/2)
-        → InvPark → InvClarke"]
+    subgraph App["app.py — cache-or-run gate + plots"]
+        direction TB
+        A1["params + blake2b hash"]
+        A1 -->|"hash match in<br/>parquet metadata"| A2["pl.read_parquet"]
+        A1 -->|"miss"| BLOCK["with Simulator(motor, encoder, controller, inverter) as sim:<br/>df = sim.run(TL_ref, T_s, T_f)"]
+        BLOCK --> A3["_write_parquet"]
     end
 
-    subgraph POW["power stage — runs at dt_sim ≤ T_pwm/20"]
-        PWM["PWMModulator.step()
-        d_k = clip(0.5 + v_k_ref/Vdc)
-        triangle carrier @ f_pwm
-        s_k = 1 if d_k > carrier"]
-        INV["Inverter.step()
-        outside dead time:
-        v_k = (s_k − 0.5)·Vdc
-        inside dead time:
-        v_k = −sign(i_k)·Vdc/2"]
+    subgraph Pipeline["Simulator — orchestrates per-tick signal flow"]
+        direction LR
+        TL["TL_ref(t)"] --> C
+        C["controller<br/>(FOCController)<br/>Clarke → Park → 2× PI<br/>→ dq decoupling + BEMF FF<br/>→ vector sat → InvPark → InvClarke"]
+        C -->|"v_a_ref, v_b_ref, v_c_ref"| I
+        I["inverter<br/>(PWM + dead-time)"]
+        I -->|"v_a, v_b, v_c"| M
+        M["motor<br/>PMSMAbcModel (FMU)"]
+        M -->|"i_abc, θ_m, ω_m, T_e"| E
+        E["encoder<br/>EncoderMeasurement<br/>θ_e_meas = p · θ_m_meas mod 2π"]
+        E -->|"i_abc_meas, θ_e_meas, ω_e_meas"| C
     end
 
-    subgraph MTR["plant"]
-        PMSM["PMSMAbcModel
-        SlotlessPMSM_abc.fmu
-        v_abc, T_L → i_abc, θ_m, ω_m, T_e"]
-    end
-
-    subgraph FBK["measurement"]
-        ENC["EncoderMeasurement
-        FluxEncoder @ Ts_enc
-        θ_e_meas = p · θ_m_meas mod 2π"]
-    end
-
-    FOC -->|v_a_ref, v_b_ref, v_c_ref| PWM
-    PWM -->|d_abc, s_abc| INV
-    INV -->|v_a, v_b, v_c| PMSM
-    PMSM -->|i_a, i_b, i_c, θ_m, ω_m, T_e| ENC
-    ENC -->|θ_e_meas, ω_e_meas, i_abc_meas| FOC
-
-    classDef ctrl fill:#e3f2fd,stroke:#1976d2;
-    classDef pow  fill:#fff3e0,stroke:#f57c00;
-    classDef mtr  fill:#e8f5e9,stroke:#388e3c;
-    classDef fbk  fill:#f3e5f5,stroke:#7b1fa2;
-    class FOC ctrl
-    class PWM,INV pow
-    class PMSM mtr
-    class ENC fbk
+    App -.-|"builds + drives"| Pipeline
 ```
+
+**Clocks.** Two outer clocks plus one inside the encoder:
+
+- `T_s` — inner simulation step (FMU `doStep`, PWM carrier comparison, inverter dead-time tracking). Default `T_pwm/20`; a `T_s ≤ T_pwm/10` floor in `Simulator.run` enforces ≥10× oversampling of the carrier.
+- `dt_ctrl = 1 / controller.f_pwm` — FOC current-loop tick (one FOC update per PWM cycle, the standard digital-FOC convention).
+- `Ts_enc` — encoder sample period, lives inside `FluxEncoder`.
+
+The PWM modulator is owned by the `Inverter` — `Inverter.step()` does PWM compare + dead-time-aware leg voltages in one call. Between FOC ticks the FOC's last `v_abc_ref` is held by ZOH and fed into the inverter every `T_s`.
 
 ## Physical effects modelled
 
@@ -80,28 +64,25 @@ Why this architecture (and not the simpler "FOC outputs continuous v_abc straigh
 sequenceDiagram
     autonumber
     participant SIM as Simulator
-    participant PMSM as PMSMAbcModel
-    participant ENC as EncoderMeasurement
-    participant FOC as FOCController
-    participant PWM as PWMModulator
-    participant INV as Inverter
+    participant M as motor (PMSMAbcModel)
+    participant E as encoder
+    participant C as controller (FOC)
+    participant I as inverter (PWM + dead-time)
 
-    SIM->>PMSM: measure()
-    PMSM-->>SIM: i_abc, θ_m, ω_m, T_e
-    SIM->>ENC: step(θ_m, ω_m, i_abc, t)
-    ENC-->>SIM: θ_m_meas, ω_m_meas, θ_e_meas, i_abc_meas
+    SIM->>M: measure()
+    M-->>SIM: i_abc, θ_m, ω_m, T_e
+    SIM->>E: step(θ_m, ω_m, i_abc, t)
+    E-->>SIM: θ_m_meas, ω_m_meas, θ_e_meas, i_abc_meas
     alt control-tick boundary (every dt_ctrl)
-        SIM->>FOC: step(i_abc_meas, θ_e_meas, ω_e_meas, i_d_ref, i_q_ref, dt_ctrl)
-        FOC-->>SIM: v_a_ref, v_b_ref, v_c_ref
+        SIM->>C: step(i_abc_meas, θ_e_meas, ω_e_meas, i_d_ref, i_q_ref, dt_ctrl)
+        C-->>SIM: v_a_ref, v_b_ref, v_c_ref
     end
-    SIM->>PWM: step(v_*_ref, Vdc, t, dt_sim)
-    PWM-->>SIM: d_abc, s_abc
-    SIM->>INV: step(s_abc, i_abc, Vdc, dt_sim)
-    INV-->>SIM: v_a, v_b, v_c (post-inverter)
-    SIM->>PMSM: step(v_abc, T_L, dt_sim)
+    SIM->>I: step(v_*_ref, i_abc, t, T_s)
+    I-->>SIM: d_abc, s_abc, v_a, v_b, v_c (post-inverter)
+    SIM->>M: step(v_abc, T_L, T_s)
 ```
 
-Between FOC ticks the v_*_ref values are held by ZOH and fed into the PWM every dt_sim, so the modulator + inverter run at the carrier-resolution timescale while the FOC integrates only once per PWM period (the standard digital-FOC convention).
+Between FOC ticks the v_*_ref values are held by ZOH and fed into the inverter every `T_s`, so the power stage runs at the carrier-resolution timescale while the FOC integrates only once per PWM period.
 
 ## Modules
 
@@ -124,20 +105,22 @@ graph TD
     FluxEncoder
     EncoderMeasurement"]
     switching["switching.py
-    PWMModulator
-    Inverter (dead time)
+    PWMModulator (private)
+    Inverter (PWM + dead time)
     PMSMAbcModel"]
     fmu["modelica/
     SlotlessPMSM_abc.fmu"]
     simulator["simulator.py
     Simulator
-    (multi-rate loop)"]
-    main["main.py
-    run() + parquet writer"]
+    (4-component + run())"]
     plots["plots.py
-    8 Plotly figures"]
+    8 Plotly figures
+    palette ← style.css"]
+    css["assets/style.css
+    palette source"]
     app["app.py
-    Dash UI + cache"]
+    Dash UI + cache
+    + parquet I/O"]
     parquet["output/
     *.parquet"]
 
@@ -146,7 +129,7 @@ graph TD
     model --> switching
     model --> encoder
     model --> simulator
-    model --> main
+    model --> app
     tuning --> controller
     tuning --> app
     transform --> controller
@@ -154,10 +137,10 @@ graph TD
     controller --> simulator
     switching --> simulator
     fmu --> switching
-    simulator --> main
-    main --> parquet
+    simulator --> app
+    css --> plots
     plots --> app
-    main --> app
+    app --> parquet
     parquet --> app
 ```
 
@@ -169,14 +152,13 @@ graph TD
 | [src/model.py](src/model.py) | All Pydantic v2 models — catalog-parsing schema, the `MotorSku` + `decode_sku` serial decoder (catalog REV1.8 p.28), the `CatalogMotor` connection-aware computed-field bridge (R_s / L_s / ψ_m / J per p.35), the simulation-facing flat types (`PmsmModel`, `EncoderConfig`, `FocConfig`, `InverterConfig`, `TLRef`), and the catalog loader. `python -m model` exercises the decoder, prints the STM-75-20-L-4Y worked example, then cross-checks every variant against its catalog continuous-torque. |
 | [src/tuning.py](src/tuning.py) | Pure functions `auto_pi_gains_from_bw(R, L, bw_hz)` (pole-zero cancellation) and `modulus_optimum_tuning(R, L, f_pwm)` (Leonhard / Schroeder MO). |
 | [src/transform.py](src/transform.py) | Amplitude-invariant Clarke / Park + composed `abc_to_dq`, `dq_to_abc`. `python transform.py` round-trip self-test. |
-| [src/controller.py](src/controller.py) | `PIController` (parallel-form PI with split unsaturated/integrate API for shared anti-windup), `FOCController` (Clarke → Park → 2× PI → **dq decoupling + BEMF feedforward** → **vector saturation** → InvPark → InvClarke). |
-| [src/debug_foc.py](src/debug_foc.py) | Standalone FOC sanity-debug CLI. `uv run python src/debug_foc.py --all` walks an 11-step procedure (ideal-mode → re-enable each non-ideality) against a synthetic motor matching the docs (R_s=0.5 Ω, L_s=100 µH, ψ_m=0.02 Wb, p=4). Uses the `Simulator` debug knobs `i_q_ref_override`, `i_d_ref_override`, `T_L_override`, `bypass_pwm`. |
+| [src/controller.py](src/controller.py) | `PIController` (parallel-form PI with split unsaturated/integrate API for shared anti-windup), `FOCController` (Clarke → Park → 2× PI → **dq decoupling + BEMF feedforward** → **vector saturation** → InvPark → InvClarke). Exposes `f_pwm` so the Simulator can derive `dt_ctrl`. |
+| [src/debug_foc.py](src/debug_foc.py) | Standalone FOC sanity-debug CLI. `uv run python src/debug_foc.py --all` walks an 11-step procedure (ideal-mode → re-enable each non-ideality) against a synthetic motor matching the docs (R_s=0.5 Ω, L_s=100 µH, ψ_m=0.02 Wb, p=4). Uses the new 4-component pipeline under a `with Simulator(...) as sim:` block; debug overrides (`i_q_ref_override`, `i_d_ref_override`, `T_L_override`, `bypass_pwm`) are `run()` kwargs. |
 | [src/encoder.py](src/encoder.py) | `FluxEncoder` (sample-and-hold + 3-harmonic cyclic error + N-bit quantization), `EncoderMeasurement` (composite wrapper adding `θ_e_meas` + i_abc pass-through). |
-| [src/switching.py](src/switching.py) | `PWMModulator` (centered duty + triangular carrier), `Inverter` (stateful, emulates gate-driver dead-time via freewheel-diode model), `PMSMAbcModel` (thin FMU wrapper). |
-| [src/simulator.py](src/simulator.py) | `Simulator` — owns the multi-rate loop (dt_sim, dt_ctrl, Ts_enc); returns one log dict per `step(t)`. |
-| [src/main.py](src/main.py) | `run(...)` — thin driver: builds the pipeline, accumulates logs, writes the parquet file with key-value metadata (schema v2). |
-| [src/plots.py](src/plots.py) | Eight `figure_<name>(df, meta)` functions returning Plotly figures (tracking, PI performance, FFT(ω_m), phase currents, phase voltages overlay, duties, encoder error, speed+saturation). |
-| [src/app.py](src/app.py) | Dash UI. Variant dropdown, *Power stage* (Vdc / f_pwm / t_dead), *Encoder*, *Trajectory*, *Timing* (dt_sim), *Current loop* (PI tuning radio: Auto / Manual / Modulus Optimum). Simulate button hashes 25 input fields; cache-hit reloads parquet without re-running the FMU. |
+| [src/switching.py](src/switching.py) | `PWMModulator` (centered duty + triangular carrier — kept public for unit tests, but `Inverter` owns one internally), `Inverter` (PWM compare + gate-driver dead-time via freewheel-diode model — one `step()` does both), `PMSMAbcModel` (thin FMU wrapper). |
+| [src/simulator.py](src/simulator.py) | `Simulator(motor, encoder, controller, inverter)` — the orchestrator. Context-managed (`with … as sim`) so the FMU is released on exit. `sim.run(TL_ref, T_s, T_f)` drives the multi-rate loop (`T_s` inner, `dt_ctrl = 1/f_pwm` for FOC, `Ts_enc` inside the encoder) and returns a `polars.DataFrame`. |
+| [src/plots.py](src/plots.py) | Eight `figure_<name>(df, meta)` functions returning Plotly figures (tracking, PI performance, FFT(ω_m), phase currents, phase voltages overlay, duties, encoder error, speed+saturation). Palette is sourced once at import from `assets/style.css` (`--alva-text`, `--alva-coral-dark`, `--alva-text-muted` → `#1A1A1A`, `#E0543F`, `#5B5B5B`); references render dashed in the same colour as the measurement they pair with. |
+| [src/app.py](src/app.py) | Dash UI. Variant dropdown, *Power stage* (Vdc / f_pwm / t_dead), *Encoder*, *Trajectory*, *Timing* (dt_sim), *Current loop* (PI tuning radio: Modulus Optimum / Manual), collapsed *Debug* section with a "Bypass PWM" checkbox. Owns the parquet cache (`_output_path_for`, `_read_metadata`, `_write_parquet`, `_default_TL_ref`) and the 4-component pipeline construction. Simulate button hashes the full input dict (including `bypass_pwm`); cache-hit reloads parquet without re-running the FMU. |
 
 ## Equations
 
@@ -328,10 +310,10 @@ cd src && uv run python -m model
 
 The Dash app caches each run as a Polars/Parquet file at
 `output/<family>_<variant>.parquet`. The parquet's key-value metadata
-holds the 16-character blake2b hash of the canonical 25-field input dict.
+holds the 16-character blake2b hash of the canonical input dict.
 Re-clicking Simulate with unchanged inputs is a cache hit (no FMU run);
-changing any field — Vdc, f_pwm, t_dead, PI tuning, encoder, trajectory —
-invalidates the hash and re-runs.
+changing any field — f_pwm, t_dead, PI tuning, encoder, trajectory, or
+the Debug-section *Bypass PWM* toggle — invalidates the hash and re-runs.
 
 ## Output schema (parquet v2)
 
@@ -367,10 +349,9 @@ slimtorq-control/
     ├── transform.py                   Clarke / Park / inverses
     ├── controller.py                  PIController, FOCController
     ├── encoder.py                     FluxEncoder, EncoderMeasurement
-    ├── switching.py                   PWMModulator, Inverter (dead time), PMSMAbcModel
-    ├── simulator.py                   Simulator (multi-rate loop) + debug overrides
-    ├── main.py                        run() + parquet writer
+    ├── switching.py                   PWMModulator (private), Inverter (PWM + dead time), PMSMAbcModel
+    ├── simulator.py                   Simulator(motor, encoder, controller, inverter).run(TL_ref, T_s, T_f)
     ├── debug_foc.py                   11-step FOC sanity-debug CLI
-    ├── plots.py                       8 Plotly figures
-    └── app.py                         Dash UI
+    ├── plots.py                       8 Plotly figures (palette from style.css)
+    └── app.py                         Dash UI + parquet cache + pipeline construction
 ```

@@ -29,7 +29,7 @@ from controller import FOCController
 from encoder import EncoderMeasurement, FluxEncoder
 from model import EncoderConfig, FocConfig, InverterConfig, PmsmModel, TLRef
 from simulator import Simulator
-from switching import Inverter, PMSMAbcModel, PWMModulator
+from switching import Inverter, PMSMAbcModel
 from transform import abc_to_dq, dq_to_abc
 from tuning import auto_pi_gains_from_bw
 
@@ -98,7 +98,6 @@ ENC_DEFAULT = EncoderConfig()  # Catalog defaults (n_bits=22, harmonics + Ts=100
 F_PWM = 20_000.0
 T_PWM = 1.0 / F_PWM
 DT_SIM = T_PWM / 20.0
-DT_CTRL = T_PWM
 BW_HZ = 1000.0
 VDC = DEBUG_MOTOR.rated_voltage
 
@@ -129,11 +128,10 @@ def _run(cfg: RunCfg) -> dict[str, np.ndarray]:
         f_pwm=F_PWM,
         bw_hz=BW_HZ,
     )
-    foc = FOCController(foc_cfg)
-    pwm = PWMModulator(f_pwm=F_PWM)
-    inverter = Inverter(InverterConfig(Vdc=VDC, t_dead=cfg.t_dead))
-    pmsm = PMSMAbcModel(DEBUG_MOTOR)
+    controller = FOCController(foc_cfg)
+    inverter = Inverter(InverterConfig(Vdc=VDC, f_pwm=F_PWM, t_dead=cfg.t_dead))
     encoder = EncoderMeasurement(FluxEncoder(enc_cfg), p=DEBUG_MOTOR.p)
+    motor = PMSMAbcModel(DEBUG_MOTOR)
 
     if cfg.TL_traj is not None:
         TL = cfg.TL_traj
@@ -142,61 +140,17 @@ def _run(cfg: RunCfg) -> dict[str, np.ndarray]:
         TL = TLRef(ref=np.array([0.0]), t=np.array([cfg.duration]))
         T_L_override = cfg.T_L
 
-    sim = Simulator(
-        motor=DEBUG_MOTOR,
-        foc=foc,
-        pwm=pwm,
-        inverter=inverter,
-        pmsm=pmsm,
-        encoder=encoder,
-        TL=TL,
-        dt_sim=DT_SIM,
-        dt_ctrl=DT_CTRL,
-        Vdc=VDC,
-        i_q_ref_override=cfg.i_q_ref,
-        i_d_ref_override=cfg.i_d_ref,
-        T_L_override=T_L_override,
-        bypass_pwm=cfg.bypass_pwm,
-    )
-
-    n = round(cfg.duration / DT_SIM)
-    keys = (
-        "t",
-        "TL_ref",
-        "T_e",
-        "i_d_ref",
-        "i_q_ref",
-        "i_d_meas",
-        "i_q_meas",
-        "v_d_ref",
-        "v_q_ref",
-        "i_a",
-        "i_b",
-        "i_c",
-        "theta_m_true",
-        "theta_m_meas",
-        "omega_m_true",
-        "omega_m_meas",
-        "v_a_ref",
-        "v_b_ref",
-        "v_c_ref",
-        "d_a",
-        "d_b",
-        "d_c",
-        "v_a",
-        "v_b",
-        "v_c",
-        "sat_d",
-    )
-    log = {k: np.zeros(n) for k in keys}
-    try:
-        for k in range(n):
-            row = sim.step(k * DT_SIM)
-            for col in keys:
-                log[col][k] = row[col]
-    finally:
-        pmsm.close()
-    return log
+    with Simulator(motor, encoder, controller, inverter) as sim:
+        df = sim.run(
+            TL,
+            T_s=DT_SIM,
+            T_f=cfg.duration,
+            i_q_ref_override=cfg.i_q_ref,
+            i_d_ref_override=cfg.i_d_ref,
+            T_L_override=T_L_override,
+            bypass_pwm=cfg.bypass_pwm,
+        )
+    return {col: df[col].to_numpy() for col in df.columns}
 
 
 def _tail_mean(arr: np.ndarray, frac: float = 0.2) -> float:

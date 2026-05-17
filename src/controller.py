@@ -155,6 +155,12 @@ class FOCController:
         self.sat_d: bool = False
         self.sat_q: bool = False
 
+    @property
+    def f_pwm(self) -> float:
+        # Exposed so the Simulator can derive dt_ctrl = 1/f_pwm (one FOC tick
+        # per PWM cycle — standard digital-FOC convention).
+        return self.cfg.f_pwm
+
     def step(self, i_a: float, i_b: float, i_c: float, theta_e_meas: float, omega_e_meas: float, i_d_ref: float, i_q_ref: float, dt: float) -> tuple[float, float, float]:
         """One FOC tick.
 
