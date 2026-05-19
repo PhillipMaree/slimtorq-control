@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 
 import numpy as np
@@ -787,4 +788,8 @@ def simulate(
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8080)
+    app.run(
+        host=os.environ.get("DASH_HOST", "127.0.0.1"),
+        port=int(os.environ.get("DASH_PORT", "8080")),
+        debug=os.environ.get("DASH_DEBUG", "1") == "1",
+    )

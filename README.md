@@ -298,10 +298,53 @@ page-35 definition; if a future revision of the dq sim wants star-equivalent
 quantities for delta motors, that conversion belongs downstream of
 `CatalogMotor`, not inside its derivations.
 
-## Usage
+## Getting started
+
+The fastest path is the **prebuilt Docker image** — no Python, no `uv`, no
+OpenModelica toolchain on the host. Use the source-build path only if you
+plan to edit the code or rebuild the Modelica plant.
+
+### Option A — Docker (recommended)
+
+The Dash UI is published as
+[`phillipmaree/slimtorq-control`](https://hub.docker.com/r/phillipmaree/slimtorq-control)
+on Docker Hub. The image bundles the Python dependencies, the motor
+catalog, the assets, and the pre-built `SlotlessPMSM_abc.fmu`, so the only
+requirement on the host is a working Docker engine.
 
 ```bash
-# 0. Dependencies (managed by uv).
+# 1. Pull and run the published image.
+docker run --rm -p 8080:8080 phillipmaree/slimtorq-control:latest
+# → open http://localhost:8080
+# → pick a variant, set Vdc / f_pwm / t_dead, choose PI tuning mode, click Simulate.
+```
+
+Or use compose for a local build (handy when iterating on the
+`Dockerfile`):
+
+```bash
+docker compose up --build
+```
+
+The entry point reads `DASH_HOST`, `DASH_PORT`, and `DASH_DEBUG` from the
+environment (defaults `127.0.0.1`, `8080`, `1`). The container image
+overrides these to `0.0.0.0` / `8080` / `0` so Dash binds to all
+interfaces in production mode.
+
+Image publishing is automated by
+[`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml):
+every push to `main` rebuilds and pushes `:latest` plus a `:sha-<short>` tag;
+git tags matching `v*` push the tag verbatim. PRs build the image but do
+not push. The workflow expects `DOCKER_HUB_USERNAME` and
+`DOCKER_HUB_TOKEN` repository secrets.
+
+### Option B — From source (for development)
+
+Requires `uv` (Python toolchain) and `omc` (OpenModelica compiler) on
+the host.
+
+```bash
+# 0. Sync dependencies (managed by uv).
 uv sync
 
 # 1. Build the FMU (requires OpenModelica `omc`).
@@ -310,9 +353,8 @@ uv sync
 # 2. Launch the Dash UI.
 uv run python src/app.py
 # → opens http://localhost:8080
-# → pick a variant, set Vdc / f_pwm / t_dead, choose PI tuning mode, click Simulate.
 
-# 3. Catalog cross-check.
+# 3. Catalog cross-check (optional).
 cd src && uv run python -m model
 ```
 
@@ -341,6 +383,12 @@ Metadata (`slimtorq.*` keys): `schema_version`, `params_hash`, `params_json`, `f
 ```
 slimtorq-control/
 ├── README.md
+├── docker-compose.yaml                Dash UI service (build context = repo root)
+├── compose/control/
+│   ├── Dockerfile                     multi-stage uv build → python:3.13-slim
+│   └── start                          .venv/bin/python src/app.py
+├── .github/workflows/
+│   └── docker-publish.yml             build + push phillipmaree/slimtorq-control
 ├── config/
 │   └── catalog.yaml                   Alva SlimTorq motor data
 ├── pyproject.toml                     deps: fmpy, polars, plotly, dash, pyarrow, …
