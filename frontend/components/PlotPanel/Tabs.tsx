@@ -1,6 +1,6 @@
 'use client';
 
-export type TabKey = 'tracking' | 'control' | 'mechanical' | 'power' | 'signal-processing';
+export type TabKey = 'tracking' | 'control' | 'mechanical' | 'power' | 'signal-processing' | 'observer';
 
 export interface TabDef {
   key: TabKey;

@@ -56,6 +56,7 @@ from src.model import (
     FilterConfig,
     FocConfig,
     InverterConfig,
+    LCLParams,
     PiMode,
     PmsmModel,
     SimMeta,
@@ -63,10 +64,11 @@ from src.model import (
     TLRef,
     load_catalog,
 )
+from src.observer import LCLObserver
 from src.switching import Inverter, LCLFilter, PMSMAbcModel
-from src.tuning import modulus_optimum_tuning, skogestad_tuning
+from src.tuning import PlantType, modulus_optimum_tuning, skogestad_tuning
 
-SCHEMA_VERSION = "7"
+SCHEMA_VERSION = "8"
 TWO_PI = 2.0 * math.pi
 
 CATALOG: dict[str, PmsmModel] = load_catalog(get_config().catalog.file_path)
@@ -104,6 +106,27 @@ LOG_COLUMNS = (
     "v_b_motor",
     "v_c_motor",
     "m_index",
+    "i1_d_hat",
+    "vc_d_hat",
+    "im_d_hat",
+    "ic_d_hat",
+    "i1_q_hat",
+    "vc_q_hat",
+    "im_q_hat",
+    "ic_q_hat",
+)
+# Columns initialised to NaN instead of zero — observer estimates are only
+# meaningful when the LCL filter runs in switching mode, otherwise the LCL
+# states don't exist and a zero-line would be misleading.
+NAN_INIT_COLUMNS = (
+    "i1_d_hat",
+    "vc_d_hat",
+    "im_d_hat",
+    "ic_d_hat",
+    "i1_q_hat",
+    "vc_q_hat",
+    "im_q_hat",
+    "ic_q_hat",
 )
 BOOL_COLUMNS = ("sat_d", "sat_q")
 INT_COLUMNS = ("s_a", "s_b", "s_c", "pwm_mode_active")
@@ -204,13 +227,24 @@ class Simulator:
         n_steps = round(T_horizon / T_s)
 
         all_cols = list(LOG_COLUMNS) + list(BOOL_COLUMNS) + list(INT_COLUMNS)
-        log = {k: np.zeros(n_steps) for k in all_cols}
+        log = {k: (np.full(n_steps, np.nan) if k in NAN_INIT_COLUMNS else np.zeros(n_steps)) for k in all_cols}
 
         # ZOH state for v_abc_ref between FOC ticks.
         v_a_ref = 0.0
         v_b_ref = 0.0
         v_c_ref = 0.0
         ctrl_phase = 0.0
+
+        # LCL state observers (d, q axes). Constructed lazily only when the
+        # filter is engaged in switching mode — otherwise the LCL states are
+        # not part of the plant and the estimates are left as NaN.
+        observers_active = self.filter is not None and inverter_mode == "switching"
+        obs_d: LCLObserver | None = None
+        obs_q: LCLObserver | None = None
+        if observers_active:
+            params = LCLParams.from_runtime(L_f=self.filter.L_f, C_f=self.filter.C_f, motor=self.motor.motor, Ts=T_s)
+            obs_d = LCLObserver(params, measurement_type="motor_current")
+            obs_q = LCLObserver(params, measurement_type="motor_current")
 
         for k in range(n_steps):
             t = k * T_s
@@ -260,6 +294,21 @@ class Simulator:
             # (d) PMSM advance — fed the filtered voltage when the filter is on.
             T_L = T_L_override if T_L_override is not None else T_e_ref
             self.motor.step(v_a_motor, v_b_motor, v_c_motor, T_L, T_s)
+
+            # (c3) LCL state observer (d, q). Runs only when the filter is on
+            # in switching mode; otherwise the observer columns stay NaN.
+            if obs_d is not None and obs_q is not None:
+                e_q = omega_e_meas * self.motor.motor.psi_m
+                d_est = obs_d.predict_update(v_inv=self.controller.v_d, y_meas=self.controller.i_d_meas, e=0.0)
+                q_est = obs_q.predict_update(v_inv=self.controller.v_q, y_meas=self.controller.i_q_meas, e=e_q)
+                log["i1_d_hat"][k] = d_est["i1_hat"]
+                log["vc_d_hat"][k] = d_est["vc_hat"]
+                log["im_d_hat"][k] = d_est["im_hat"]
+                log["ic_d_hat"][k] = d_est["ic_hat"]
+                log["i1_q_hat"][k] = q_est["i1_hat"]
+                log["vc_q_hat"][k] = q_est["vc_hat"]
+                log["im_q_hat"][k] = q_est["im_hat"]
+                log["ic_q_hat"][k] = q_est["ic_hat"]
 
             log["t"][k] = t
             log["TL_ref"][k] = T_L
@@ -424,27 +473,85 @@ def write_parquet(
         b"slimtorq.r_s": f"{motor.R_s:.10g}".encode(),
         b"slimtorq.l_s": f"{motor.L_s:.10g}".encode(),
         b"slimtorq.pole_pairs": str(motor.p).encode(),
+        b"slimtorq.i_q_peak": f"{i_q_peak_of(motor):.10g}".encode(),
+        b"slimtorq.te_peak_1s": f"{motor.te_peak_1s:.10g}".encode(),
     }
     table = table.replace_schema_metadata(meta)
     pq.write_table(table, str(out_path))
 
 
-def gains_for_mode(variant: str, pi_mode: PiMode, f_pwm: float, pi_tc: float | None = None, pi_k1: float = 1.44) -> tuple[float, float] | None:
-    """Auto-suggested (Kp, Ki) for variant + mode. None for manual."""
-    m = CATALOG[variant]
-    if pi_mode == "modulus_optimum":
-        return modulus_optimum_tuning(m.R_s, m.L_s, float(f_pwm))
+def _ts_for_tuning(f_pwm: float) -> float:
+    """Mirror of Simulator.run()'s default T_s = T_pwm / 20 so LCLParams used
+    for tuning has the same Ts the observer will see."""
+    return 1.0 / (float(f_pwm) * 20.0)
+
+
+def _plant_type_for(filter_enabled: bool) -> PlantType:
+    """LR for no filter, lcl_with_active_damping when the LCL is on (the
+    observer drives Kd · ic_hat, so the resonance is actively damped — margin 5
+    suffices instead of the conservative 10)."""
+    return "lcl_with_active_damping" if filter_enabled else "lr"
+
+
+# Headroom factor over the active-damping resonance margin (5). We pick Tc so
+# omega_c <= omega_res / (5 * SAFETY_HEADROOM); 1.25 leaves ~25% slack against
+# the guard.
+_LCL_TC_SAFETY_HEADROOM = 1.25
+
+
+def _safe_lcl_tc(motor: PmsmModel, f_pwm: float, filter_fc: float) -> float:
+    """Skogestad Tc that keeps closed-loop bandwidth safely below the LCL resonance.
+
+    Solves omega_c = 1/(Tc + tau_delay) <= omega_res / (5 * headroom) for Tc,
+    where tau_delay = 1.5/f_pwm is the controller-+-PWM dead-time used by
+    Skogestad. Floored at tau_delay so Tc is at least one dead-time.
+    """
+    lcl = LCLParams.from_filter_config(FilterConfig(enabled=True, f_c_target=filter_fc), motor, _ts_for_tuning(f_pwm))
+    omega_res = lcl.resonance_frequency_rad_s()
+    tau_delay = 1.5 / float(f_pwm)
+    tc_min = (5.0 * _LCL_TC_SAFETY_HEADROOM) / omega_res - tau_delay
+    return max(tc_min, tau_delay)
+
+
+def _auto_tune(motor: PmsmModel, pi_mode: PiMode, f_pwm: float, pi_tc: float | None, pi_k1: float, filter_enabled: bool, filter_fc: float) -> tuple[float, float]:
+    """Resolve (Kp, Ki) for any non-manual mode. When the LCL is on we
+    transparently substitute Skogestad with a safe Tc against the
+    active-damping plant — Modulus Optimum is unsafe at typical filter_fc
+    values because its implied bandwidth sits ~0.5·omega_res."""
+    plant = _plant_type_for(filter_enabled)
+    lcl = LCLParams.from_filter_config(FilterConfig(enabled=True, f_c_target=filter_fc), motor, _ts_for_tuning(f_pwm)) if plant != "lr" else None
+    if filter_enabled:
+        tc_safe = _safe_lcl_tc(motor, f_pwm, filter_fc)
+        tc_used = tc_safe if pi_tc is None else max(float(pi_tc), tc_safe)
+        r = skogestad_tuning(float(f_pwm), Rs=motor.R_s, Ls=motor.L_s, plant_type=plant, lcl_params=lcl, k1=float(pi_k1), Tc=tc_used)
+        return r.Kp, r.Ki
     if pi_mode == "skogestad":
-        return skogestad_tuning(m.R_s, m.L_s, float(f_pwm), k1=float(pi_k1), Tc=pi_tc)
-    return None
+        r = skogestad_tuning(float(f_pwm), Rs=motor.R_s, Ls=motor.L_s, plant_type="lr", lcl_params=None, k1=float(pi_k1), Tc=pi_tc)
+        return r.Kp, r.Ki
+    r = modulus_optimum_tuning(float(f_pwm), Rs=motor.R_s, Ls=motor.L_s, plant_type="lr", lcl_params=None)
+    return r.Kp, r.Ki
+
+
+def gains_for_mode(
+    variant: str,
+    pi_mode: PiMode,
+    f_pwm: float,
+    pi_tc: float | None = None,
+    pi_k1: float = 1.44,
+    *,
+    filter_enabled: bool = False,
+    filter_fc: float = 5000.0,
+) -> tuple[float, float] | None:
+    """Auto-suggested (Kp, Ki) for variant + mode. None for manual."""
+    if pi_mode == "manual":
+        return None
+    return _auto_tune(CATALOG[variant], pi_mode, float(f_pwm), pi_tc, float(pi_k1), filter_enabled, float(filter_fc))
 
 
 def _resolve_gains(p: SimParams, motor: PmsmModel) -> tuple[float, float]:
     if p.pi_mode == "manual" and p.Kp is not None and p.Ki is not None:
         return float(p.Kp), float(p.Ki)
-    if p.pi_mode == "skogestad":
-        return skogestad_tuning(motor.R_s, motor.L_s, p.f_pwm, k1=p.pi_k1, Tc=p.pi_tc)
-    return modulus_optimum_tuning(motor.R_s, motor.L_s, p.f_pwm)
+    return _auto_tune(motor, p.pi_mode, p.f_pwm, p.pi_tc, p.pi_k1, p.filter_enabled, p.filter_fc)
 
 
 def _params_dict_for_hash(p: SimParams) -> dict:
@@ -482,14 +589,23 @@ def _params_dict_for_hash(p: SimParams) -> dict:
     }
 
 
-def _tracking_err_pct(df: pl.DataFrame) -> float:
-    """RMS(i_q - i_q_ref) / RMS(i_q_ref) over trailing 80%, as percent."""
+def i_q_peak_of(motor: PmsmModel) -> float:
+    """Peak of rated continuous q-axis current [A]. Amplitude-invariant Clarke gives
+    i_peak = sqrt(2) * I_rms, so i_q_peak = sqrt(2) * i_cont."""
+    return math.sqrt(2.0) * motor.i_cont
+
+
+def _tracking_err_pct(df: pl.DataFrame, motor: PmsmModel) -> float:
+    """RMS(i_q_meas - i_q_ref) / i_q_peak over trailing 80%, as percent.
+
+    Motor-relative normalization — stable across operating points and reused
+    for the d-axis badge (where i_d_ref = 0 makes a ref-relative percentage
+    meaningless).
+    """
     tail = df.slice(int(0.8 * df.height), df.height - int(0.8 * df.height))
     err = (tail["i_q_meas"] - tail["i_q_ref"]).to_numpy()
-    ref = tail["i_q_ref"].to_numpy()
     err_rms = float(np.sqrt(np.mean(err * err)))
-    ref_floor = max(float(np.sqrt(np.mean(ref * ref))), float(abs(ref.mean())), 1e-9)
-    return 100.0 * err_rms / ref_floor
+    return 100.0 * err_rms / i_q_peak_of(motor)
 
 
 def run_simulation(p: SimParams) -> tuple[pl.DataFrame, SimMeta]:
@@ -575,7 +691,7 @@ def run_simulation(p: SimParams) -> tuple[pl.DataFrame, SimMeta]:
     meta = SimMeta(
         params_hash=h,
         rows=df.height,
-        err_pct=_tracking_err_pct(df),
+        err_pct=_tracking_err_pct(df, motor),
         artifact_name=out_path.name,
         foc_kp=controller.Kp,
         foc_ki=controller.Ki,

@@ -136,8 +136,11 @@ class FOCController:
             self.Kp = cfg.Kp
             self.Ki = cfg.Ki
         else:
-            # Auto-tune: pole-zero cancellation. See module docstring.
-            self.Kp, self.Ki = auto_pi_gains_from_bw(cfg.R_s, cfg.L_s, cfg.bw_hz)
+            # Auto-tune: pole-zero cancellation. See module docstring. This
+            # fallback path is LR-only — the filter-aware tuning lives in
+            # simulator._resolve_gains where FilterConfig is in scope.
+            result = auto_pi_gains_from_bw(cfg.bw_hz, Rs=cfg.R_s, Ls=cfg.L_s, plant_type="lr")
+            self.Kp, self.Ki = result.Kp, result.Ki
         self.pi_d = PIController(Kp=self.Kp, Ki=self.Ki)
         self.pi_q = PIController(Kp=self.Kp, Ki=self.Ki)
         # Sinusoidal-PWM linear range: |v_dq_vec| ≤ Vdc/2.

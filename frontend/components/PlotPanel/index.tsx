@@ -8,6 +8,7 @@ import { Tabs } from './Tabs';
 import type { TabDef, TabKey } from './Tabs';
 import { buildControlFft, buildControlTime } from './figures/control';
 import { buildMechanicalFft, buildMechanicalTime } from './figures/mechanical';
+import { buildObserverFft, buildObserverTime } from './figures/observer';
 import { buildPowerFft, buildPowerTime } from './figures/power';
 import { buildSignalProcessingFft, buildSignalProcessingTime } from './figures/signalProcessing';
 import { buildTrackingFft, buildTrackingTime } from './figures/tracking';
@@ -19,6 +20,7 @@ const TAB_BUILDERS: Record<TabKey, FigureBuilder[]> = {
   mechanical: [buildMechanicalTime, buildMechanicalFft],
   power: [buildPowerTime, buildPowerFft],
   'signal-processing': [buildSignalProcessingTime, buildSignalProcessingFft],
+  observer: [buildObserverTime, buildObserverFft],
 };
 
 export function PlotPanel({ table, meta }: { table: Table | null; meta: SimMeta | null }) {
@@ -39,6 +41,7 @@ export function PlotPanel({ table, meta }: { table: Table | null; meta: SimMeta 
     ];
     if (pwmEnabled) out.push({ key: 'power', label: 'Power' });
     if (filterEnabled) out.push({ key: 'signal-processing', label: 'Signal Processing' });
+    if (filterEnabled) out.push({ key: 'observer', label: 'Observer' });
     return out;
   }, [pwmEnabled, filterEnabled]);
 

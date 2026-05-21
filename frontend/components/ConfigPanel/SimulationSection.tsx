@@ -5,7 +5,7 @@ import { Section, Sub } from './Section';
 
 export function TrajectorySection() {
   return (
-    <Section title="Trajectory (load-torque step)">
+    <Section title="Trajectory (load-torque step)" helpKey="section:trajectory">
       <NumberField name="t_end" label={<Sub stem="t" sub="end" />} step={1e-3} min={1e-3} max={1.0} suffix="s" />
       <NumberField name="t_step" label={<Sub stem="t" sub="step" />} step={1e-3} min={0} max={1.0} suffix="s" />
       <NumberField
@@ -28,7 +28,7 @@ export function TrajectorySection() {
 
 export function TimingSection() {
   return (
-    <Section title="Timing">
+    <Section title="Timing" helpKey="section:timing">
       <NumberField
         name="dt_sim"
         label={

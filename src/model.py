@@ -531,6 +531,63 @@ class FilterConfig(BaseModel):
         return L_f, C_f, R_d
 
 
+class LCLParams(BaseModel):
+    """Single-axis LCL plant parameters shared by the state observer and PI tuner.
+
+    State equations (per axis):
+
+        L1   * di1/dt = v_inv - vc - R1   * i1
+        Cf   * dvc/dt = i1 - im
+        Lload* dim/dt = vc - Rload * im - e
+
+    where i1 = inverter-side current, vc = capacitor voltage, im = motor-side
+    current, and `e` is an optional motor-side disturbance (back-EMF on the
+    q-axis, zero on the d-axis).
+
+    For a slotless PMSM behind the inverter-side LCL filter we identify the
+    second-stage inductance with the motor inductance: Lload = L_s,
+    Rload = R_s. R1 is the (very small) ESR of the inverter-side inductor and
+    is approximated as 0 unless explicitly known.
+    """
+
+    model_config = ConfigDict(frozen=True)
+    L1: float = Field(gt=0.0)  # inverter-side filter inductance [H]
+    R1: float = Field(ge=0.0)  # inverter-side resistance         [Ohm]
+    Cf: float = Field(gt=0.0)  # filter capacitance               [F]
+    Lload: float = Field(gt=0.0)  # motor-side total inductance   [H]
+    Rload: float = Field(ge=0.0)  # motor-side total resistance   [Ohm]
+    Ts: float = Field(gt=0.0)  # observer sample period           [s]
+
+    @field_validator("L1", "R1", "Cf", "Lload", "Rload", "Ts")
+    @classmethod
+    def _finite(cls, v: float) -> float:
+        if not math.isfinite(v):
+            msg = f"LCLParams field must be finite (got {v!r})"
+            raise ValueError(msg)
+        return v
+
+    def resonance_frequency_rad_s(self) -> float:
+        return math.sqrt((self.L1 + self.Lload) / (self.L1 * self.Lload * self.Cf))
+
+    def resonance_frequency_hz(self) -> float:
+        return self.resonance_frequency_rad_s() / (2.0 * math.pi)
+
+    @classmethod
+    def from_runtime(cls, L_f: float, C_f: float, motor: PmsmModel, Ts: float, R1: float = 0.0) -> LCLParams:
+        """Build LCLParams from an already-derived (L_f, C_f) and the motor."""
+        return cls(L1=L_f, R1=R1, Cf=C_f, Lload=motor.L_s, Rload=motor.R_s, Ts=Ts)
+
+    @classmethod
+    def from_filter_config(cls, filt: FilterConfig, motor: PmsmModel, Ts: float) -> LCLParams:
+        """Build LCLParams from a (not yet instantiated) FilterConfig + motor.
+
+        Calls `FilterConfig.derive_components(motor.L_s, filt.f_c_target)` so
+        callers don't need to recompute (L_f, C_f) themselves.
+        """
+        L_f, C_f, _ = FilterConfig.derive_components(motor.L_s, filt.f_c_target)
+        return cls.from_runtime(L_f=L_f, C_f=C_f, motor=motor, Ts=Ts)
+
+
 class TLRef(BaseModel):
     """Piecewise-constant load-torque trajectory.
 
@@ -565,7 +622,7 @@ class SimParams(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     variant_name: str = DEFAULT_VARIANT
-    f_pwm: float = 50000.0
+    f_pwm: float = 20000.0
     t_dead: float = 2e-7
     n_bits: int = 22
     theta_offset: float = 0.0

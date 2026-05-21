@@ -215,10 +215,11 @@ double-underscore convention (e.g. <code>APP__PORT=9000</code>,
 </table>
 
 <h3>Current loop — PI tuning</h3>
+<p>Each rule is <em>plant-aware</em>: with the LCL filter off the plant is treated as the LR motor (R<sub>s</sub>, L<sub>s</sub>); with the LCL filter on it switches to the low-frequency equivalent L<sub>eq</sub>=L<sub>1</sub>+L<sub>load</sub>, R<sub>eq</sub>=R<sub>1</sub>+R<sub>load</sub>, and rejects the tuning if the implied closed-loop bandwidth gets too close to the LCL resonance (ω<sub>bw</sub> ≤ ω<sub>res</sub>/10, conservative) or to f<sub>pwm</sub>/10.</p>
 <table>
 <tr><td>Modulus Optimum</td><td>K<sub>p</sub>=L·f<sub>pwm</sub>/3, K<sub>i</sub>=R·f<sub>pwm</sub>/3. Default. ≈63° PM, 4.3 % overshoot.</td></tr>
 <tr><td>Skogestad SIMC</td><td>K<sub>p</sub>=L/(T<sub>c</sub>+τ), T<sub>i</sub>=min(L/R, k<sub>1</sub>·(T<sub>c</sub>+τ)). T<sub>c</sub>=<em>None</em> uses τ=1.5/f<sub>pwm</sub>; k<sub>1</sub>=1.44 default → ~3× sharper load-step rejection.</td></tr>
-<tr><td>Manual</td><td>Type K<sub>p</sub>/K<sub>i</sub> directly.</td></tr>
+<tr><td>Manual</td><td>Type K<sub>p</sub>/K<sub>i</sub> directly. Bypasses the LCL safety gate.</td></tr>
 </table>
 
 <h3>Debug section</h3>
@@ -283,6 +284,9 @@ palette slot per signal. Steady-state metrics are computed on the trailing
 
 <h3>Speed + saturation</h3>
 <p>ω<sub>m</sub><sup>true</sup> vs ω<sub>m</sub><sup>meas</sup>, plus a rug strip marking d/q PI saturation events.</p>
+
+<h3>Observer (LCL only)</h3>
+<p>Appears next to <em>Signal Processing</em> when the LCL filter is enabled. Two panels overlay the measured dq currents (i<sub>d</sub><sup>meas</sup>, i<sub>q</sub><sup>meas</sup>) with the Luenberger observer's three estimated LCL states (i<sub>1</sub>, v<sub>C</sub>, i<sub>m</sub>) and the derived capacitor current i<sub>c</sub> = i<sub>1</sub> − i<sub>m</sub>. The accompanying FFT shows where i<sub>c</sub>'s spectral energy sits — peaks near the LCL resonance are what future <em>active damping</em> v<sub>damp</sub> = −K<sub>d</sub>·i<sub>c</sub> will target.</p>
 
 </div>
 </div>

@@ -54,10 +54,16 @@ select = [
 # ψ, τ) to mirror the math; they are never executed as code.
 "src/tuning.py" = ["N803", "N806", "N802", "RUF002"]
 "src/controller.py" = ["N803", "N806", "N802", "RUF002"]
+"src/model.py" = ["N803", "N806", "N802", "RUF002"]
+"src/observer.py" = ["N803", "N806", "N802", "RUF002"]
+"src/simulator.py" = ["N803", "N806", "N802", "RUF002"]
+"tests/*.py" = ["N803", "N806", "N802", "RUF002"]
+
 [tool.coverage.run]
 source = ["src"]
 
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "pytest>=9.0.3",
 ]

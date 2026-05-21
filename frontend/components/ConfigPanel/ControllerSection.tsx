@@ -11,7 +11,7 @@ export function ControllerSection() {
   const skogestad = piMode === 'skogestad';
 
   return (
-    <Section title="Current loop">
+    <Section title="Current loop" helpKey="section:current-loop">
       <RadioField
         name="pi_mode"
         label="PI tuning"

@@ -167,7 +167,8 @@ graph TD
 | [modelica/build_fmu.mos](modelica/build_fmu.mos) | `omc` build script producing `SlotlessPMSM_abc.fmu`. |
 | [config/catalog.yaml](config/catalog.yaml) | Nested family → variant → winding data. Every cell is `{unit, value}` so units are explicit. |
 | [src/model.py](src/model.py) | All Pydantic v2 models — catalog-parsing schema, the `MotorSku` + `decode_sku` serial decoder (catalog REV1.8 p.28), the `CatalogMotor` connection-aware computed-field bridge (R_s / L_s / ψ_m / J per p.35), the simulation-facing flat types (`PmsmModel`, `EncoderConfig`, `FocConfig`, `InverterConfig`, `TLRef`), and the catalog loader. `python -m src.model` exercises the decoder, prints the STM-75-20-L-4Y worked example, then cross-checks every variant against its catalog continuous-torque. |
-| [src/tuning.py](src/tuning.py) | Pure functions `auto_pi_gains_from_bw(R, L, bw_hz)` (pole-zero cancellation), `modulus_optimum_tuning(R, L, f_pwm)` (Leonhard / Schroeder MO), and `skogestad_tuning(R, L, f_pwm, k1, Tc)` (Skogestad SIMC, Haugen §7.5 Table 7.1 row 2; defaults `k1=1.44` and `Tc=1.5/f_pwm` per Haugen footnote 11 and eq. 7.91). |
+| [src/tuning.py](src/tuning.py) | Plant-aware PI tuning. Each rule (`auto_pi_gains_from_bw`, `modulus_optimum_tuning`, `skogestad_tuning`) accepts a `plant_type ∈ {lr, lcl_conservative, lcl_with_active_damping}` and returns a `PITuningResult` dataclass with gains + diagnostics. LR uses `(R_s, L_s)`; LCL modes use the low-frequency equivalent `(L_eq, R_eq) = (L1 + Lload, R1 + Rload)` and reject the tuning if the implied closed-loop bandwidth gets too close to the LCL resonance (`ω_bw > ω_res / margin`, default margin 10 conservative / 5 with active damping) or to the PWM frequency (`f_bw > f_pwm / 10`). The simulator auto-derives `plant_type` from `FilterConfig.enabled`. |
+| [src/observer.py](src/observer.py) | Single-axis Luenberger state observer for the LCL plant `x = [i1, vc, im]^T`. Forward-Euler discrete update, configurable gain `L`, three measurement modes (`motor_current`, `inverter_current`, `capacitor_voltage`). Reused per dq axis — `Simulator` instantiates one `LCLObserver` for d and one for q when the LCL filter is engaged in switching mode. The estimated capacitor current `ic_hat = i1_hat - im_hat` is logged for future active-damping feedback. `python -m src.observer` runs a smoke test. |
 | [src/transform.py](src/transform.py) | Amplitude-invariant Clarke / Park + composed `abc_to_dq`, `dq_to_abc`. `python transform.py` round-trip self-test. |
 | [src/controller.py](src/controller.py) | `PIController` (parallel-form PI with split unsaturated/integrate API for shared anti-windup), `FOCController` (Clarke → Park → 2× PI → **dq decoupling + BEMF feedforward** → **vector saturation** → InvPark → InvClarke). Exposes `f_pwm` so the Simulator can derive `dt_ctrl`. |
 | [src/encoder.py](src/encoder.py) | `FluxEncoder` (sample-and-hold + 3-harmonic cyclic error + N-bit quantization), `EncoderMeasurement` (composite wrapper adding `θ_e_meas` + i_abc pass-through). |
@@ -211,7 +212,9 @@ v_q_raw = PI_q + ff_q
                                   freeze both PI integrators
 ```
 
-**PI tuning rules** (all three ship in [src/tuning.py](src/tuning.py))
+**PI tuning rules** (all three ship in [src/tuning.py](src/tuning.py), each selectable by `plant_type`)
+
+For `plant_type="lr"` (LCL filter disabled — the LR motor plant):
 
 ```
 auto / pole-zero cancellation:   K_p = L_s·2π·bw_hz,   K_i = R_s·2π·bw_hz
@@ -220,6 +223,28 @@ Skogestad SIMC (τ = 1.5/f_pwm, default T_c = τ):
     K_p = L_s / (T_c + τ),  T_i = min(L_s/R_s, k1·(T_c + τ)),  K_i = K_p / T_i
     (k1 = 1.44 default; k1 = 4 for textbook critically-damped disturbance step)
 ```
+
+For `plant_type ∈ {"lcl_conservative", "lcl_with_active_damping"}` (LCL filter enabled), the same formulae are applied with `(L_s, R_s) → (L_eq, R_eq)` where
+
+```
+L_eq = L1 + Lload     R_eq = R1 + Rload
+ω_res = sqrt((L1 + Lload) / (L1 · Lload · Cf))
+```
+
+and the tuning raises `ValueError` if the implied closed-loop bandwidth violates the resonance gate `ω_bw ≤ ω_res / margin` (default margin **10** conservative, **5** with active damping) or the PWM gate `f_bw ≤ f_pwm / 10`. The simulator auto-derives `plant_type` from `FilterConfig.enabled` — `"lcl_with_active_damping"` is supported in the API but not yet selectable from the UI; it becomes reachable once active damping is wired in.
+
+**LCL state observer** ([src/observer.py](src/observer.py)). Single-axis Luenberger:
+
+```
+x_hat_dot = A x_hat + B v_inv + E e + L (y_meas − C x_hat)         (Euler, dt = T_s)
+
+A = [[−R1/L1, −1/L1,            0   ],
+     [ 1/Cf,   0,            −1/Cf  ],
+     [ 0,     1/Lload, −Rload/Lload ]]
+B = [1/L1, 0, 0]^T          E = [0, 0, −1/Lload]^T
+```
+
+Two instances run in the dq frame when the LCL filter is engaged (one per axis, fed by `(v_d, i_d_meas)` and `(v_q, i_q_meas, ω_e·ψ_m)`); the estimated capacitor current `ic_hat = i1_hat − im_hat` is logged for future active-damping feedback `v_damp = −K_d · ic_hat`. Surfaced in the UI as the **Observer** plot tab (gated on `filter_enabled`).
 
 **Centered sinusoidal PWM**
 
@@ -399,6 +424,7 @@ traceability; there is no cache-hit path.
 | PWM | `d_a`, `d_b`, `d_c` | float |
 | Switching | `s_a`, `s_b`, `s_c` | int8 |
 | Post-inverter | `v_a`, `v_b`, `v_c` | float |
+| LCL observer (NaN when filter disabled) | `i1_d_hat`, `vc_d_hat`, `im_d_hat`, `ic_d_hat`, `i1_q_hat`, `vc_q_hat`, `im_q_hat`, `ic_q_hat` | float |
 | Saturation flags | `sat_d`, `sat_q` | bool |
 
 Metadata (`slimtorq.*` keys): `schema_version`, `params_hash`, `params_json`, `foc_kp`, `foc_ki`, `pi_mode`, `pi_tc`, `pi_k1`, `vdc`, `f_pwm`, `t_dead`, `ts_enc`, `inverter_mode`, `pwm_mode`, `filter_enabled`, `filter_fc`, `filter_lf`, `filter_cf`, `filter_rd`, `b_est`, `motor_family`, `motor_name`, `motor_rated_voltage`.
@@ -429,7 +455,8 @@ slimtorq-control/
 │   ├── main.py                        async entrypoint (await server.run())
 │   ├── server.py                      FastAPI app + uvicorn.Server (get_app / get_server / run)
 │   ├── model.py                       Pydantic schema + catalog loader
-│   ├── tuning.py                      auto_pi_gains_from_bw, modulus_optimum_tuning, skogestad_tuning
+│   ├── tuning.py                      plant-aware PI tuning (LR + LCL conservative + LCL with active damping)
+│   ├── observer.py                    single-axis Luenberger LCL state observer (used 2× for dq)
 │   ├── transform.py                   Clarke / Park / inverses
 │   ├── controller.py                  PIController, FOCController
 │   ├── encoder.py                     FluxEncoder, EncoderMeasurement

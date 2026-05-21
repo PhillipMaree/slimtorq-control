@@ -26,7 +26,7 @@ function FilterDerived() {
 export function FilterSection() {
   const enabled = useWatch<SimParams, 'filter_enabled'>({ name: 'filter_enabled' });
   return (
-    <Section title="Output filter (LCL)">
+    <Section title="Output filter (LCL)" helpKey="section:filter">
       <CheckboxField name="filter_enabled" label="Enable LCL filter between inverter and motor" />
       <NumberField name="filter_fc" label={<Sub stem="f" sub="c" />} step={500} min={500} max={20000} suffix="Hz" disabled={!enabled} />
       <FilterDerived />

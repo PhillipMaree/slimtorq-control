@@ -4,7 +4,7 @@ import type { SimParams } from '@/types/sim';
 // render until /defaults responds.
 export const FORM_DEFAULTS: SimParams = {
   variant_name: 'STM-130-27-M-4D',
-  f_pwm: 50000.0,
+  f_pwm: 20000.0,
   t_dead: 2e-7,
   n_bits: 22,
   theta_offset: 0.0,

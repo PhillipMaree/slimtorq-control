@@ -7,7 +7,7 @@ const TWO_PI = 2 * Math.PI;
 
 export function EncoderSection() {
   return (
-    <Section title="Encoder">
+    <Section title="Encoder" helpKey="section:encoder">
       <IntField name="n_bits" label={<Sub stem="N" sub="bits" />} step={1} min={10} max={26} />
       <NumberField name="theta_offset" label={<Sub stem="θ" sub="offset" />} step={1e-3} min={-Math.PI} max={Math.PI} suffix="rad" />
       <NumberField name="A1" label={<Sub stem="A" sub="1" />} step={1e-6} min={0} max={1e-3} suffix="rad" />

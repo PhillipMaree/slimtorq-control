@@ -4,13 +4,13 @@ import { PALETTE } from '@/lib/palette';
 import { base } from '../theme';
 import { cornerInfoBox, stackedGrid } from '../subplotLayout';
 import type { FigureBuilder } from './types';
-import { refTrackingErrPct } from './types';
+import { metaNum, refTrackingErrPct } from './types';
 import { buildFftFigure } from './fftHelpers';
 
 const tMs = (t: Float64Array) => Float64Array.from(t, (v) => v * 1e3);
 
 // 1. Time-domain tracking: Torque, i_q, i_d (ref vs measured) with err%.
-export const buildTrackingTime: FigureBuilder = ({ table }) => {
+export const buildTrackingTime: FigureBuilder = ({ table, meta }) => {
   const t = tMs(col(table, 't'));
   const TL = col(table, 'TL_ref');
   const Te = col(table, 'T_e');
@@ -19,9 +19,13 @@ export const buildTrackingTime: FigureBuilder = ({ table }) => {
   const idRef = col(table, 'i_d_ref');
   const idM = col(table, 'i_d_meas');
 
-  const errT = refTrackingErrPct(table, 'T_e', 'TL_ref').toFixed(2);
-  const errQ = refTrackingErrPct(table, 'i_q_meas', 'i_q_ref').toFixed(2);
-  const errD = refTrackingErrPct(table, 'i_d_meas', 'i_d_ref').toFixed(2);
+  // Peak normalizations from parquet meta: currents → i_q_peak = sqrt(2)·i_cont,
+  // torque → te_peak_1s. Both are motor-relative constants.
+  const iqPeak = metaNum(meta, 'slimtorq.i_q_peak', NaN);
+  const tePeak = metaNum(meta, 'slimtorq.te_peak_1s', NaN);
+  const errT = refTrackingErrPct(table, 'T_e', 'TL_ref', tePeak).toFixed(2);
+  const errQ = refTrackingErrPct(table, 'i_q_meas', 'i_q_ref', iqPeak).toFixed(2);
+  const errD = refTrackingErrPct(table, 'i_d_meas', 'i_d_ref', iqPeak).toFixed(2);
 
   const layout = stackedGrid({
     count: 3,
@@ -50,9 +54,9 @@ export const buildTrackingTime: FigureBuilder = ({ table }) => {
     dataZoom: layout.dataZoom,
     legend: { top: 0, right: 8, textStyle: { fontSize: 10 } },
     graphic: [
-      cornerInfoBox([`err = ${errT} %`], layout.gridTops[0]),
-      cornerInfoBox([`err = ${errQ} %`], layout.gridTops[1]),
-      cornerInfoBox([`err = ${errD} %`], layout.gridTops[2]),
+      cornerInfoBox([`err = ${errT} % of Te_peak`], layout.gridTops[0]),
+      cornerInfoBox([`err = ${errQ} % of i_q_peak`], layout.gridTops[1]),
+      cornerInfoBox([`err = ${errD} % of i_q_peak`], layout.gridTops[2]),
     ],
     series: [
       line(0, 'T_L_ref', xyPairs(t, TL), PALETTE[0], true, 1.2),

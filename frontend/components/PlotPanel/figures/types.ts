@@ -9,30 +9,26 @@ export interface FigureInput {
 
 export type FigureBuilder = (input: FigureInput) => FigureSpec;
 
-// Tracking-error % over trailing 80% of meas vs ref.
+// Tracking-error % normalized by a motor-relative peak (i_q_peak for currents,
+// te_peak_1s for torque). Computed over the trailing 80% of the run so the
+// transient doesn't dominate. Peak normalization keeps the d-axis badge
+// meaningful (i_d_ref = 0) and makes errors comparable across operating points.
 import { col } from '@/lib/arrow';
-export function refTrackingErrPct(table: Table, measCol: string, refCol: string): number {
+export function refTrackingErrPct(table: Table, measCol: string, refCol: string, peak: number): number {
   const meas = col(table, measCol);
   const ref = col(table, refCol);
   const n = meas.length;
-  if (n < 4) return NaN;
+  if (n < 4 || !(peak > 0)) return NaN;
   const start = Math.floor(0.8 * n);
   let sumE = 0;
-  let sumR = 0;
-  let sumRm = 0;
   let cnt = 0;
   for (let i = start; i < n; i++) {
     const e = meas[i] - ref[i];
     sumE += e * e;
-    sumR += ref[i] * ref[i];
-    sumRm += ref[i];
     cnt++;
   }
   const errRms = Math.sqrt(sumE / cnt);
-  const refRms = Math.sqrt(sumR / cnt);
-  const refMean = Math.abs(sumRm / cnt);
-  const floor = Math.max(refRms, refMean, 1e-9);
-  return (100 * errRms) / floor;
+  return (100 * errRms) / peak;
 }
 
 export function metaNum(meta: SimMeta, key: string, fallback: number): number {
