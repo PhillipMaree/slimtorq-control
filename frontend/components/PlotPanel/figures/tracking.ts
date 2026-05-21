@@ -1,13 +1,16 @@
-import type { EChartsOption } from 'echarts';
+import type { EChartsOption, LineSeriesOption } from 'echarts';
 import { col, xyPairs } from '@/lib/arrow';
 import { PALETTE } from '@/lib/palette';
-import { axisTime, axisValue, base } from '../theme';
+import { base } from '../theme';
+import { cornerInfoBox, stackedGrid } from '../subplotLayout';
 import type { FigureBuilder } from './types';
 import { refTrackingErrPct } from './types';
+import { buildFftFigure } from './fftHelpers';
 
 const tMs = (t: Float64Array) => Float64Array.from(t, (v) => v * 1e3);
 
-export const buildTracking: FigureBuilder = ({ table }) => {
+// 1. Time-domain tracking: Torque, i_q, i_d (ref vs measured) with err%.
+export const buildTrackingTime: FigureBuilder = ({ table }) => {
   const t = tMs(col(table, 't'));
   const TL = col(table, 'TL_ref');
   const Te = col(table, 'T_e');
@@ -15,42 +18,60 @@ export const buildTracking: FigureBuilder = ({ table }) => {
   const iqM = col(table, 'i_q_meas');
   const idRef = col(table, 'i_d_ref');
   const idM = col(table, 'i_d_meas');
+
   const errT = refTrackingErrPct(table, 'T_e', 'TL_ref').toFixed(2);
   const errQ = refTrackingErrPct(table, 'i_q_meas', 'i_q_ref').toFixed(2);
   const errD = refTrackingErrPct(table, 'i_d_meas', 'i_d_ref').toFixed(2);
 
+  const layout = stackedGrid({
+    count: 3,
+    titles: ['Torque tracking', 'q-axis current tracking', 'd-axis current tracking'],
+    yLabels: ['Torque [N·m]', 'i_q [A]', 'i_d [A]'],
+  });
+
+  const line = (gi: number, name: string, data: Iterable<[number, number]>, color: string, dashed = false, width = 1.4): LineSeriesOption => ({
+    type: 'line',
+    name,
+    xAxisIndex: gi,
+    yAxisIndex: gi,
+    data: data as [number, number][],
+    showSymbol: false,
+    sampling: 'lttb',
+    lineStyle: { color, width, type: dashed ? 'dashed' : 'solid' },
+  });
+
   const option: EChartsOption = {
     ...base,
-    title: [
-      { text: `Torque [N·m]   err = ${errT}%`, top: '0%', textStyle: { fontSize: 12, color: '#5B5B5B' } },
-      { text: `i_q [A]   err = ${errQ}%`, top: '34%', textStyle: { fontSize: 12, color: '#5B5B5B' } },
-      { text: `i_d [A]   err = ${errD}%`, top: '67%', textStyle: { fontSize: 12, color: '#5B5B5B' } },
-    ],
+    title: layout.title,
+    grid: layout.grid,
+    xAxis: layout.xAxis,
+    yAxis: layout.yAxis,
+    axisPointer: layout.axisPointer,
+    dataZoom: layout.dataZoom,
     legend: { top: 0, right: 8, textStyle: { fontSize: 10 } },
-    grid: [
-      { left: 60, right: 20, top: '6%', height: '24%' },
-      { left: 60, right: 20, top: '40%', height: '24%' },
-      { left: 60, right: 20, top: '73%', height: '22%' },
-    ],
-    xAxis: [
-      { ...axisTime(), gridIndex: 0 },
-      { ...axisTime(), gridIndex: 1 },
-      { ...axisTime('t [ms]'), gridIndex: 2 },
-    ],
-    yAxis: [
-      { ...axisValue(), gridIndex: 0 },
-      { ...axisValue(), gridIndex: 1 },
-      { ...axisValue(), gridIndex: 2 },
+    graphic: [
+      cornerInfoBox([`err = ${errT} %`], layout.gridTops[0]),
+      cornerInfoBox([`err = ${errQ} %`], layout.gridTops[1]),
+      cornerInfoBox([`err = ${errD} %`], layout.gridTops[2]),
     ],
     series: [
-      { type: 'line', xAxisIndex: 0, yAxisIndex: 0, name: 'T_L_ref', data: xyPairs(t, TL), showSymbol: false, sampling: 'lttb', lineStyle: { color: PALETTE[0], type: 'dashed', width: 1.2 } },
-      { type: 'line', xAxisIndex: 0, yAxisIndex: 0, name: 'T_e', data: xyPairs(t, Te), showSymbol: false, sampling: 'lttb', lineStyle: { color: PALETTE[0], width: 1.4 } },
-      { type: 'line', xAxisIndex: 1, yAxisIndex: 1, name: 'i_q_ref', data: xyPairs(t, iqRef), showSymbol: false, sampling: 'lttb', lineStyle: { color: PALETTE[1], type: 'dashed', width: 1.2 } },
-      { type: 'line', xAxisIndex: 1, yAxisIndex: 1, name: 'i_q', data: xyPairs(t, iqM), showSymbol: false, sampling: 'lttb', lineStyle: { color: PALETTE[1], width: 1.4 } },
-      { type: 'line', xAxisIndex: 2, yAxisIndex: 2, name: 'i_d_ref', data: xyPairs(t, idRef), showSymbol: false, sampling: 'lttb', lineStyle: { color: PALETTE[2], type: 'dashed', width: 1.2 } },
-      { type: 'line', xAxisIndex: 2, yAxisIndex: 2, name: 'i_d', data: xyPairs(t, idM), showSymbol: false, sampling: 'lttb', lineStyle: { color: PALETTE[2], width: 1.4 } },
+      line(0, 'T_L_ref', xyPairs(t, TL), PALETTE[0], true, 1.2),
+      line(0, 'T_e', xyPairs(t, Te), PALETTE[0]),
+      line(1, 'i_q_ref', xyPairs(t, iqRef), PALETTE[1], true, 1.2),
+      line(1, 'i_q', xyPairs(t, iqM), PALETTE[1]),
+      line(2, 'i_d_ref', xyPairs(t, idRef), PALETTE[2], true, 1.2),
+      line(2, 'i_d', xyPairs(t, idM), PALETTE[2]),
     ],
-    axisPointer: { link: [{ xAxisIndex: 'all' }] },
   };
-  return { title: '\\text{Tracking}', option, height: 480 };
+  return { title: '', option, height: layout.cardHeight };
 };
+
+// 2. FFTs of the realized tracking signals: T_e, i_q_meas, i_d_meas.
+// FFT(i_d_meas) is included to verify dq decoupling — with i_d_ref = 0 the
+// spectrum should be ripple-only (no fundamental at the rotor electrical
+// frequency).
+export const buildTrackingFft = buildFftFigure([
+  { title: 'FFT(T_e)',      yLabel: 'mag [N·m, norm]', traces: [{ signalCol: 'T_e',       name: '|FFT(T_e)|' }] },
+  { title: 'FFT(i_q_meas)', yLabel: 'mag [A, norm]',   traces: [{ signalCol: 'i_q_meas',  name: '|FFT(i_q^meas)|' }] },
+  { title: 'FFT(i_d_meas)', yLabel: 'mag [A, norm]',   traces: [{ signalCol: 'i_d_meas',  name: '|FFT(i_d^meas)|' }] },
+]);

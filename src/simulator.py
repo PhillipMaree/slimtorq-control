@@ -87,6 +87,7 @@ LOG_COLUMNS = (
     "i_c",
     "theta_m_true",
     "theta_m_meas",
+    "theta_e_true",
     "theta_e_meas",
     "omega_m_true",
     "omega_m_meas",
@@ -274,6 +275,7 @@ class Simulator:
             log["i_c"][k] = i_c
             log["theta_m_true"][k] = theta_m_true
             log["theta_m_meas"][k] = theta_m_meas
+            log["theta_e_true"][k] = (self.p * theta_m_true) % TWO_PI
             log["theta_e_meas"][k] = theta_e_meas
             log["omega_m_true"][k] = omega_m_true
             log["omega_m_meas"][k] = omega_m_meas
@@ -419,6 +421,9 @@ def write_parquet(
         b"slimtorq.motor_family": motor.family.encode(),
         b"slimtorq.motor_name": motor.name.encode(),
         b"slimtorq.motor_rated_voltage": f"{motor.rated_voltage:.6g}".encode(),
+        b"slimtorq.r_s": f"{motor.R_s:.10g}".encode(),
+        b"slimtorq.l_s": f"{motor.L_s:.10g}".encode(),
+        b"slimtorq.pole_pairs": str(motor.p).encode(),
     }
     table = table.replace_schema_metadata(meta)
     pq.write_table(table, str(out_path))
