@@ -5,26 +5,36 @@ import { axisLog, axisTime, axisValue } from './theme';
 import { metaNum, metaStr } from './figures/types';
 
 // -----------------------------------------------------------------------------
-// Layout constants. One source of truth for grid padding so info-box overlays
-// and titles stay aligned with the chart area.
+// Layout constants. Grid positions are percentages so the chart canvas can
+// flex with its container (the figure card stretches to fill empty viewport
+// space — see PlotPanel/index.tsx). The pixel-row-height props are converted
+// to a *minimum* card height in px so plots stay readable when many cards
+// stack in a tall tab.
 // -----------------------------------------------------------------------------
 const GRID_LEFT_PX = 72;
 const GRID_RIGHT_PX = 24;
 const TITLE_HEIGHT_PX = 18;
 const ROW_GAP_PX = 14;
-const SHARED_X_LABEL_PX = 26; // extra bottom padding on the last subplot for `t [ms]`
+const SHARED_X_LABEL_PX = 26;
 const TOP_PAD_PX = 10;
 const BOTTOM_PAD_PX = 8;
 
+// Percentages used inside the chart canvas. ECharts accepts string '%'
+// values for grid.top / grid.height / title.top, so the grid scales with
+// the container height.
+const TITLE_PCT = 4.0;
+const TITLE_GAP_PCT = 1.0;
+const ROW_GAP_PCT = 2.0;
+const SHARED_X_PCT = 6.0;
+const TOP_PCT = 1.5;
+const BOTTOM_PCT = 1.0;
+
 export interface StackedGridOpts {
   count: number;
-  // y-axis labels for each subplot (top-to-bottom).
   yLabels: string[];
-  // centered title for each subplot (top-to-bottom).
   titles: string[];
-  // shared x-axis label (only rendered on bottom subplot). Default 't [ms]'.
   sharedXLabel?: string;
-  // per-row plot height in px.
+  // Minimum row height in px (used to size each card's CSS `min-height`).
   rowHeight?: number;
 }
 
@@ -34,12 +44,11 @@ export interface StackedGridResult {
   xAxis: NonNullable<EChartsOption['xAxis']>;
   yAxis: NonNullable<EChartsOption['yAxis']>;
   axisPointer: NonNullable<EChartsOption['axisPointer']>;
-  // inside-type dataZoom so users can scroll-to-zoom and drag-to-pan on every
-  // subplot in the card. X-axes are linked so all stacked panels zoom in sync.
   dataZoom: NonNullable<EChartsOption['dataZoom']>;
-  // top px of each grid (used by cornerInfoBox to anchor overlays).
-  gridTops: number[];
-  // total card height (px) including the shared x-axis label band.
+  // Percentage `top` of each grid (used by cornerInfoBox to anchor overlays).
+  gridTops: string[];
+  // Card minimum height in px (used as `min-height` on the FigureCard so the
+  // ECharts canvas is always at least this tall; flex-grow handles taller).
   cardHeight: number;
 }
 
@@ -47,7 +56,6 @@ function buildInsideZoom(count: number): NonNullable<EChartsOption['dataZoom']> 
   const xAxisIndex = Array.from({ length: count }, (_, i) => i);
   const yAxisIndex = Array.from({ length: count }, (_, i) => i);
   return [
-    // Scroll wheel zooms the linked x-axes; drag pans them.
     {
       type: 'inside',
       xAxisIndex,
@@ -56,7 +64,6 @@ function buildInsideZoom(count: number): NonNullable<EChartsOption['dataZoom']> 
       moveOnMouseMove: true,
       moveOnMouseWheel: false,
     },
-    // Hold shift + scroll to zoom y on the hovered subplot.
     {
       type: 'inside',
       yAxisIndex,
@@ -68,58 +75,69 @@ function buildInsideZoom(count: number): NonNullable<EChartsOption['dataZoom']> 
   ];
 }
 
+interface PercentLayout {
+  titles: { top: string }[];
+  grids: { top: string; height: string }[];
+  gridTops: string[]; // top of each grid in '%' for the info-box overlay
+  cardHeightPx: number;
+}
+
+function percentLayout(count: number, rowHeightPx: number): PercentLayout {
+  const titleH = TITLE_PCT;
+  const titleGap = TITLE_GAP_PCT;
+  const rowGap = ROW_GAP_PCT;
+  const usable = 100 - TOP_PCT - BOTTOM_PCT - SHARED_X_PCT - count * (titleH + titleGap) - (count - 1) * rowGap;
+  const rowPct = usable / count;
+
+  const titles: { top: string }[] = [];
+  const grids: { top: string; height: string }[] = [];
+  const gridTops: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const blockTop = TOP_PCT + i * (titleH + titleGap + rowPct + rowGap);
+    const gridTop = blockTop + titleH + titleGap;
+    titles.push({ top: `${blockTop}%` });
+    grids.push({ top: `${gridTop}%`, height: `${rowPct}%` });
+    gridTops.push(`${gridTop}%`);
+  }
+
+  const rowBlockH = TITLE_HEIGHT_PX + rowHeightPx;
+  const cardHeightPx = TOP_PAD_PX + count * rowBlockH + (count - 1) * ROW_GAP_PX + SHARED_X_LABEL_PX + BOTTOM_PAD_PX;
+  return { titles, grids, gridTops, cardHeightPx };
+}
+
 /**
  * Build the title / grid / xAxis / yAxis fragments for a vertically-stacked
- * set of time-domain subplots that share a common `t [ms]` x-axis.
- *
- * Each subplot gets:
- *   - a centered title above its grid (text from `titles[i]`)
- *   - its own y-axis with label `yLabels[i]`
- *   - tick labels on every x-axis (so each panel reads independently), but only
- *     the bottom panel gets the `t [ms]` axis-name label rendered.
+ * set of time-domain subplots that share a common `t [ms]` x-axis. Grids
+ * are positioned in percentages so the canvas can flex with its container;
+ * the bottom subplot gets the shared `t [ms]` axis-name label.
  */
 export function stackedGrid(opts: StackedGridOpts): StackedGridResult {
   const { count, yLabels, titles } = opts;
   const sharedXLabel = opts.sharedXLabel ?? 't [ms]';
-  const rowH = opts.rowHeight ?? 140;
-  const rowBlockH = TITLE_HEIGHT_PX + rowH;
-  const cardHeight = TOP_PAD_PX + count * rowBlockH + (count - 1) * ROW_GAP_PX + SHARED_X_LABEL_PX + BOTTOM_PAD_PX;
+  const rowHeightPx = opts.rowHeight ?? 170;
+  const pct = percentLayout(count, rowHeightPx);
 
-  const gridTops: number[] = [];
   const titleFragments: NonNullable<EChartsOption['title']> = [];
   const grids: NonNullable<EChartsOption['grid']> = [];
   const xAxes: NonNullable<EChartsOption['xAxis']> = [];
   const yAxes: NonNullable<EChartsOption['yAxis']> = [];
 
   for (let i = 0; i < count; i++) {
-    const blockTop = TOP_PAD_PX + i * (rowBlockH + ROW_GAP_PX);
-    const gridTop = blockTop + TITLE_HEIGHT_PX;
-    gridTops.push(gridTop);
-
     titleFragments.push({
       text: titles[i] ?? '',
-      top: blockTop,
+      top: pct.titles[i].top,
       left: 'center',
       textStyle: { fontSize: 12, color: '#1A1A1A', fontWeight: 'normal' },
     });
-
-    const isLast = i === count - 1;
     grids.push({
       left: GRID_LEFT_PX,
       right: GRID_RIGHT_PX,
-      top: gridTop,
-      height: rowH,
+      top: pct.grids[i].top,
+      height: pct.grids[i].height,
     });
-    xAxes.push({
-      ...axisTime(isLast ? sharedXLabel : undefined),
-      gridIndex: i,
-      nameGap: 26,
-    });
-    yAxes.push({
-      ...axisValue(yLabels[i]),
-      gridIndex: i,
-      nameGap: 50,
-    });
+    const isLast = i === count - 1;
+    xAxes.push({ ...axisTime(isLast ? sharedXLabel : undefined), gridIndex: i, nameGap: 26 });
+    yAxes.push({ ...axisValue(yLabels[i]), gridIndex: i, nameGap: 50 });
   }
 
   return {
@@ -129,8 +147,8 @@ export function stackedGrid(opts: StackedGridOpts): StackedGridResult {
     yAxis: yAxes,
     axisPointer: { link: [{ xAxisIndex: 'all' }] },
     dataZoom: buildInsideZoom(count),
-    gridTops,
-    cardHeight,
+    gridTops: pct.gridTops,
+    cardHeight: pct.cardHeightPx,
   };
 }
 
@@ -138,58 +156,42 @@ export interface FreqGridOpts {
   count: number;
   yLabels: string[];
   titles: string[];
-  // shared x-axis label, default 'f [Hz]'.
   sharedXLabel?: string;
   rowHeight?: number;
 }
 
 /**
- * Same layout pattern as stackedGrid but using log-frequency x-axes. Each FFT
- * subplot gets its own log x-axis (so axis-pointer hover stays accurate per
- * panel) and the shared `f [Hz]` axis label is rendered only on the bottom.
+ * Same layout pattern as stackedGrid but using log-frequency x-axes. FFT
+ * plots span 5+ decades of magnitude — the percentage rows keep them
+ * readable as the card grows.
  */
 export function freqGrid(opts: FreqGridOpts): StackedGridResult {
   const { count, yLabels, titles } = opts;
   const sharedXLabel = opts.sharedXLabel ?? 'f [Hz]';
-  const rowH = opts.rowHeight ?? 160;
-  const rowBlockH = TITLE_HEIGHT_PX + rowH;
-  const cardHeight = TOP_PAD_PX + count * rowBlockH + (count - 1) * ROW_GAP_PX + SHARED_X_LABEL_PX + BOTTOM_PAD_PX;
+  const rowHeightPx = opts.rowHeight ?? 240;
+  const pct = percentLayout(count, rowHeightPx);
 
-  const gridTops: number[] = [];
   const titleFragments: NonNullable<EChartsOption['title']> = [];
   const grids: NonNullable<EChartsOption['grid']> = [];
   const xAxes: NonNullable<EChartsOption['xAxis']> = [];
   const yAxes: NonNullable<EChartsOption['yAxis']> = [];
 
   for (let i = 0; i < count; i++) {
-    const blockTop = TOP_PAD_PX + i * (rowBlockH + ROW_GAP_PX);
-    const gridTop = blockTop + TITLE_HEIGHT_PX;
-    gridTops.push(gridTop);
-
     titleFragments.push({
       text: titles[i] ?? '',
-      top: blockTop,
+      top: pct.titles[i].top,
       left: 'center',
       textStyle: { fontSize: 12, color: '#1A1A1A', fontWeight: 'normal' },
     });
-
-    const isLast = i === count - 1;
     grids.push({
       left: GRID_LEFT_PX,
       right: GRID_RIGHT_PX,
-      top: gridTop,
-      height: rowH,
+      top: pct.grids[i].top,
+      height: pct.grids[i].height,
     });
-    xAxes.push({
-      ...axisLog(isLast ? sharedXLabel : undefined),
-      gridIndex: i,
-      nameGap: 26,
-    });
-    yAxes.push({
-      ...axisLog(yLabels[i]),
-      gridIndex: i,
-      nameGap: 50,
-    });
+    const isLast = i === count - 1;
+    xAxes.push({ ...axisLog(isLast ? sharedXLabel : undefined), gridIndex: i, nameGap: 26 });
+    yAxes.push({ ...axisLog(yLabels[i]), gridIndex: i, nameGap: 50 });
   }
 
   return {
@@ -199,24 +201,22 @@ export function freqGrid(opts: FreqGridOpts): StackedGridResult {
     yAxis: yAxes,
     axisPointer: { link: [] },
     dataZoom: buildInsideZoom(count),
-    gridTops,
-    cardHeight,
+    gridTops: pct.gridTops,
+    cardHeight: pct.cardHeightPx,
   };
 }
 
 /**
  * A small text box anchored to the upper-left corner of subplot `gridIdx`.
- * Returns a `graphic` group fragment to spread into `option.graphic = [...]`.
- *
- * The box uses absolute pixel positioning so it lines up with grid.left /
- * grid.top from stackedGrid / freqGrid. `lines` are joined with newlines.
+ * Uses pixel-left so it lines up with `grid.left`, percentage-top so it
+ * tracks the subplot as the canvas resizes.
  */
-export function cornerInfoBox(lines: string[], gridTopPx: number) {
+export function cornerInfoBox(lines: string[], gridTopPct: string) {
   const text = lines.join('\n');
   return {
     type: 'text',
     left: GRID_LEFT_PX + 8,
-    top: gridTopPx + 4,
+    top: gridTopPct,
     silent: true,
     style: {
       text,
@@ -244,10 +244,6 @@ export interface FreqGuide {
 }
 
 /**
- * Single source of truth for FFT vertical reference lines. Returns the list
- * derived from parquet metadata; FFT figure builders pass these into each
- * series' `markLine.data`.
- *
  *   f_BW   = foc_kp / (2π · L_s)    -- closed-loop current bandwidth
  *   N·f_pwm (N = 1, 2, 3)           -- PWM harmonics
  *   f_c                              -- LCL cutoff, only when filter is on
@@ -278,10 +274,6 @@ function fmtHz(f: number): string {
   return `${f.toFixed(0)}Hz`;
 }
 
-/**
- * Convert a list of FreqGuides into an ECharts markLine `data` array, with the
- * label rendered above the line (rotated and small to avoid clutter).
- */
 export function freqGuideMarkLines(guides: FreqGuide[]) {
   return guides.map((g) => ({
     xAxis: g.freq,

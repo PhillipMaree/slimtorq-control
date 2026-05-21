@@ -68,7 +68,7 @@ export function PlotPanel({ table, meta }: { table: Table | null; meta: SimMeta 
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <Tabs tabs={tabs} active={active} onChange={setActive} />
-      <div className="flex-1 p-4 grid grid-cols-1 gap-4 overflow-y-auto">
+      <div className="flex-1 p-4 flex flex-col gap-4 overflow-y-auto">
         {figures.map((fig, i) => (
           <FigureCard key={`${active}-${i}`} figure={fig} />
         ))}
