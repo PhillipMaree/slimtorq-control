@@ -26,7 +26,7 @@ from pathlib import Path
 from fmpy import extract, read_model_description
 from fmpy.fmi2 import FMU2Slave
 
-from model import InverterConfig, PmsmModel
+from src.model import InverterConfig, PmsmModel
 
 # ---------------------------------------------------------------------------
 # PWM modulator

@@ -10,12 +10,12 @@ Three layers:
    electrical / mechanical phase-domain parameters via @computed_field, each
    one carrying its catalog page-35 formula in its docstring.
 3. PmsmModel is the flat sim-facing shape consumed by the runtime
-   (controller, simulator, debug scripts). For catalog motors it is produced
-   by CatalogMotor.to_pmsm_model(); for synthetic motors (debug_foc.py) it
-   is constructed directly with explicit R_s / L_s / psi_m / J.
+   (controller, simulator). For catalog motors it is produced by
+   CatalogMotor.to_pmsm_model(); for synthetic motors it can be
+   constructed directly with explicit R_s / L_s / psi_m / J.
 
 The catalog loader (load_catalog, _build_pmsm_model, validate) lives at the
-bottom of the file. `python -m model` runs the cross-check.
+bottom of the file. `python -m src.model` runs the cross-check.
 """
 
 from __future__ import annotations
@@ -23,11 +23,68 @@ from __future__ import annotations
 import math
 import re
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
+
+ROOT: Path = Path(__file__).resolve().parent.parent
+
+
+def _resolve(p: str | Path) -> Path:
+    """Resolve a config-supplied path against the project root unless absolute."""
+    path = Path(p)
+    return path if path.is_absolute() else ROOT / path
+
+
+# ---------- Application configuration sections (mirror config/app.yaml) ----------
+class App(BaseModel):
+    name: str
+    host: str
+    port: int
+    version: str
+    log_config_file: str
+    log_level: str
+
+    @field_validator("log_config_file", mode="after")
+    @classmethod
+    def _resolve_log_config(cls, v: str) -> str:
+        return str(_resolve(Path("config") / v) if not Path(v).is_absolute() else Path(v))
+
+    @property
+    def log_config(self) -> dict[str, Any]:
+        return yaml.safe_load(Path(self.log_config_file).read_text())
+
+
+class Cors(BaseModel):
+    allow_origins: list[str]
+    allow_methods: list[str] = ["GET", "POST"]
+    allow_headers: list[str] = ["*"]
+
+
+class Frontend(BaseModel):
+    dist_dir: str
+
+    @property
+    def dist_path(self) -> Path:
+        return _resolve(self.dist_dir)
+
+
+class Artifacts(BaseModel):
+    dir: str
+
+    @property
+    def path(self) -> Path:
+        return _resolve(self.dir)
+
+
+class Catalog(BaseModel):
+    path: str
+
+    @property
+    def file_path(self) -> Path:
+        return _resolve(self.path)
 
 
 # ---------- Reusable cell shape (every {unit, value} in catalog.yaml) ----------
@@ -350,6 +407,43 @@ class PmsmModel(BaseModel):
     torque_ripple_pct: float = 0.0  # spatial harmonic ripple [%], 0..100
 
 
+# ---------- HTTP catalog DTOs (API /api/catalog response shape) ----------
+class CatalogVariant(BaseModel):
+    """One catalog entry as the API exposes it — a flattened PmsmModel."""
+
+    name: str
+    family: str
+    p: int
+    R_s: float
+    L_s: float
+    psi_m: float
+    J: float
+    rated_voltage: float
+    i_cont: float
+    te_cont_cat: float
+    te_peak_1s: float
+
+    @classmethod
+    def from_pmsm_model(cls, m: PmsmModel) -> CatalogVariant:
+        return cls(
+            name=m.name,
+            family=m.family,
+            p=m.p,
+            R_s=m.R_s,
+            L_s=m.L_s,
+            psi_m=m.psi_m,
+            J=m.J,
+            rated_voltage=m.rated_voltage,
+            i_cont=m.i_cont,
+            te_cont_cat=m.te_cont_cat,
+            te_peak_1s=m.te_peak_1s,
+        )
+
+
+class CatalogResponse(BaseModel):
+    variants: list[CatalogVariant]
+
+
 # ---------- Controller / encoder / trajectory configs ----------
 class EncoderConfig(BaseModel):
     """Flux-encoder parameters. Defaults = Zettlex IND-MAX-100 (22-bit)."""
@@ -456,8 +550,69 @@ class TLRef(BaseModel):
     t: np.ndarray
 
 
+# ---------- Simulator service request / response ----------
+DEFAULT_VARIANT = "STM-130-27-M-4D"
+
+PiMode = Literal["modulus_optimum", "skogestad", "manual"]
+InverterMode = Literal["ideal", "average", "switching"]
+PwmMode = Literal["sine", "svpwm", "dpwmmax", "dpwmmin", "dpwm1", "auto"]
+
+
+class SimParams(BaseModel):
+    """The 28 inputs the UI collects. Names and types mirror app.py:648-678 so
+    `canonical_params_json(params)` produces an identical hash."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    variant_name: str = DEFAULT_VARIANT
+    f_pwm: float = 50000.0
+    t_dead: float = 2e-7
+    n_bits: int = 22
+    theta_offset: float = 0.0
+    A1: float = 2.4e-5
+    k1: int = 1
+    phi1: float = 0.0
+    A2: float = 5.0e-6
+    k2: int = 2
+    phi2: float = 0.0
+    A3: float = 1.0e-6
+    k3: int = 4
+    phi3: float = 0.0
+    ts_enc: float = 1e-4
+    dt_sim: float | None = None
+    t_end: float = 0.05
+    t_step: float = 0.005
+    t_step_frac: float = 2.0 / 3.0
+    Tf: float | None = None
+    pi_mode: PiMode = "modulus_optimum"
+    Kp: float | None = None
+    Ki: float | None = None
+    pi_tc: float | None = None
+    pi_k1: float = 1.44
+    inverter_mode: InverterMode = "switching"
+    pwm_mode: PwmMode = "sine"
+    filter_enabled: bool = False
+    filter_fc: float = 5000.0
+
+
+class SimMeta(BaseModel):
+    """The user-visible status data the UI shows after a sim."""
+
+    params_hash: str
+    rows: int
+    err_pct: float
+    artifact_name: str
+    foc_kp: float
+    foc_ki: float
+    pi_mode: str
+    motor_family: str
+    motor_name: str
+    rated_voltage: float
+    parquet_meta: dict[str, str] = Field(default_factory=dict)
+
+
 # ---------- Catalog loader ----------
-DEFAULT_CATALOG_PATH = Path(__file__).resolve().parent.parent / "config" / "catalog.yaml"
+DEFAULT_CATALOG_PATH = ROOT / "config" / "catalog.yaml"
 
 
 def _build_pmsm_model(family: FamilySpec, variant: VariantSpec, winding: WindingSpec) -> PmsmModel:

@@ -1,43 +1,76 @@
-"""Multi-rate orchestrator for the FOC → Inverter → PMSM → Encoder loop.
+"""Multi-rate FOC simulation pipeline.
 
-The Simulator wires together the four physical components — motor, encoder,
-controller, inverter — and drives them with three clocks:
+Two layers in one module:
 
-- T_s     inner simulation step (FMU doStep, PWM carrier comparison, inverter
-          dead-time tracking). Default = T_pwm / 20.
-- dt_ctrl FOC current-loop update period. Derived as 1 / controller.f_pwm
-          — one FOC tick per PWM cycle, the standard digital-FOC convention.
-- Ts_enc  encoder sample period (lives inside FluxEncoder, queried by
-          EncoderMeasurement; independent of the above two).
+1. :class:`Simulator` — the multi-rate orchestrator that wires the four
+   physical components (motor, encoder, controller, inverter) together
+   and steps them with three clocks:
 
-Between FOC ticks the FOC's last v_abc_ref output is held by ZOH and fed into
-the Inverter every T_s.
+   - T_s     inner simulation step (FMU doStep, PWM carrier comparison,
+             inverter dead-time tracking). Default = T_pwm / 20.
+   - dt_ctrl FOC current-loop update period. Derived as 1 / controller.f_pwm
+             — one FOC tick per PWM cycle, the standard digital-FOC convention.
+   - Ts_enc  encoder sample period (lives inside FluxEncoder, queried by
+             EncoderMeasurement; independent of the above two).
 
-The Inverter has three operating modes selected per `run()` call:
+   Between FOC ticks the FOC's last v_abc_ref output is held by ZOH and
+   fed into the Inverter every T_s. Use as a context manager so the FMU is
+   always released::
+
+       with Simulator(motor, encoder, controller, inverter) as sim:
+           df = sim.run(TL_ref, T_s, T_f)
+
+2. :func:`run_simulation` — headless pipeline that turns a
+   :class:`SimParams` request into a polars DataFrame + parquet artifact
+   (with ``slimtorq.*`` metadata) and a :class:`SimMeta` summary. Consumed
+   by the FastAPI server. The 28-field `SimParams` shape mirrors the dict
+   that the old Dash callback built at app.py:648-678 verbatim, so
+   ``params_hash`` is bit-stable across the refactor.
+
+The Inverter has three operating modes selected per ``run()`` call:
 - "ideal"     : v_abc_ref straight to FMU (smooth voltage source).
 - "average"   : compute PWM duty as in switching mode but emit cycle-average
                 voltages (d - 0.5)*Vdc, skip dead-time. Isolates "scaling /
                 duty bug?" from "switching ripple problem?".
 - "switching" : real carrier compare + dead-time. Default.
-
-Use as a context manager so the FMU is always released:
-
-    with Simulator(motor, encoder, controller, inverter) as sim:
-        df = sim.run(TL_ref, T_s, T_f)
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+import math
+from pathlib import Path
 from types import TracebackType
 from typing import Literal
 
 import numpy as np
 import polars as pl
+import pyarrow.parquet as pq
 
-from controller import FOCController
-from encoder import EncoderMeasurement
-from model import TLRef
-from switching import Inverter, LCLFilter, PMSMAbcModel
+from src import get_config
+from src.controller import FOCController
+from src.encoder import EncoderMeasurement, FluxEncoder
+from src.model import (
+    EncoderConfig,
+    FilterConfig,
+    FocConfig,
+    InverterConfig,
+    PiMode,
+    PmsmModel,
+    SimMeta,
+    SimParams,
+    TLRef,
+    load_catalog,
+)
+from src.switching import Inverter, LCLFilter, PMSMAbcModel
+from src.tuning import modulus_optimum_tuning, skogestad_tuning
+
+SCHEMA_VERSION = "7"
+TWO_PI = 2.0 * math.pi
+
+CATALOG: dict[str, PmsmModel] = load_catalog(get_config().catalog.file_path)
+
 
 LOG_COLUMNS = (
     "t",
@@ -270,3 +303,281 @@ class Simulator:
         for col in INT_COLUMNS:
             columns[col] = pl.Series(col, log[col].astype(np.int8))
         return pl.DataFrame(columns)
+
+
+# ---------------------------------------------------------------------------
+# Headless run pipeline (SimParams -> DataFrame + parquet + SimMeta).
+# ---------------------------------------------------------------------------
+
+
+def _artifacts_dir() -> Path:
+    return get_config().artifacts.path
+
+
+def canonical_params_json(params: dict) -> str:
+    norm = {k: (round(float(v), 12) if isinstance(v, float) else v) for k, v in sorted(params.items())}
+    return json.dumps(norm, separators=(",", ":"), sort_keys=True)
+
+
+def params_hash(json_str: str) -> str:
+    return hashlib.blake2b(json_str.encode(), digest_size=8).hexdigest()
+
+
+def output_path_for(motor: PmsmModel) -> Path:
+    fname = f"{motor.family.replace(' ', '_')}_{motor.name}.parquet"
+    return _artifacts_dir() / fname
+
+
+def artifact_by_hash(hash_str: str) -> Path | None:
+    """Look up the parquet artifact whose slimtorq.params_hash matches.
+
+    The output filename is keyed by motor name, not hash, so we have to scan
+    metadata. Cheap — pyarrow reads only the footer.
+    """
+    root = _artifacts_dir()
+    if not root.exists():
+        return None
+    for p in root.glob("*.parquet"):
+        try:
+            md = pq.read_metadata(str(p)).metadata or {}
+        except Exception:
+            continue
+        if md.get(b"slimtorq.params_hash") == hash_str.encode():
+            return p
+    return None
+
+
+def read_metadata(path: Path) -> dict[str, str]:
+    raw = pq.read_metadata(str(path)).metadata or {}
+    return {k.decode(): v.decode() for k, v in raw.items() if k.decode().startswith("slimtorq.")}
+
+
+def default_tl_ref(motor: PmsmModel, t_end: float, t_step: float, frac: float) -> TLRef:
+    """Zero until t_step, then step to frac · te_peak_1s, hold to t_end."""
+    amp = frac * motor.te_peak_1s
+    return TLRef(ref=np.array([0.0, amp]), t=np.array([t_step, t_end]))
+
+
+def write_parquet(
+    df: pl.DataFrame,
+    *,
+    motor: PmsmModel,
+    controller: FOCController,
+    Vdc: float,
+    f_pwm: float,
+    t_dead: float,
+    ts_enc: float,
+    inverter_mode: str,
+    pwm_mode: str,
+    filter_enabled: bool,
+    filter_fc: float,
+    L_f: float,
+    C_f: float,
+    R_d: float,
+    pi_mode: str,
+    pi_tc: float | None,
+    pi_k1: float,
+    params_json: str,
+    params_hash_str: str,
+    out_path: Path,
+) -> None:
+    """Persist a Simulator.run() DataFrame as parquet with slimtorq.* metadata.
+
+    b_est (steady-state viscous-friction estimate) is derived inline from the
+    trailing 20% of the run: B ~= mean(T_e - TL_ref) / mean(omega_m_true).
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    n = df.height
+    tail = df.slice(int(0.8 * n), n - int(0.8 * n))
+    mean_omega = float(tail["omega_m_true"].mean())
+    mean_dT = float((tail["T_e"] - tail["TL_ref"]).mean())
+    b_est: float | None = mean_dT / mean_omega if abs(mean_omega) > 1e-3 else None
+
+    table = df.to_arrow()
+    meta = {
+        b"slimtorq.schema_version": SCHEMA_VERSION.encode(),
+        b"slimtorq.params_hash": params_hash_str.encode(),
+        b"slimtorq.params_json": params_json.encode(),
+        b"slimtorq.foc_kp": f"{controller.Kp:.10g}".encode(),
+        b"slimtorq.foc_ki": f"{controller.Ki:.10g}".encode(),
+        b"slimtorq.pi_mode": pi_mode.encode(),
+        b"slimtorq.pi_tc": (b"null" if pi_tc is None else f"{pi_tc:.10g}".encode()),
+        b"slimtorq.pi_k1": f"{pi_k1:.10g}".encode(),
+        b"slimtorq.vdc": f"{Vdc:.10g}".encode(),
+        b"slimtorq.f_pwm": f"{f_pwm:.10g}".encode(),
+        b"slimtorq.t_dead": f"{t_dead:.10g}".encode(),
+        b"slimtorq.ts_enc": f"{ts_enc:.10g}".encode(),
+        b"slimtorq.inverter_mode": inverter_mode.encode(),
+        b"slimtorq.pwm_mode": pwm_mode.encode(),
+        b"slimtorq.filter_enabled": (b"1" if filter_enabled else b"0"),
+        b"slimtorq.filter_fc": f"{filter_fc:.10g}".encode(),
+        b"slimtorq.filter_lf": f"{L_f:.10g}".encode(),
+        b"slimtorq.filter_cf": f"{C_f:.10g}".encode(),
+        b"slimtorq.filter_rd": f"{R_d:.10g}".encode(),
+        b"slimtorq.b_est": (b"null" if b_est is None else f"{b_est:.10g}".encode()),
+        b"slimtorq.motor_family": motor.family.encode(),
+        b"slimtorq.motor_name": motor.name.encode(),
+        b"slimtorq.motor_rated_voltage": f"{motor.rated_voltage:.6g}".encode(),
+    }
+    table = table.replace_schema_metadata(meta)
+    pq.write_table(table, str(out_path))
+
+
+def gains_for_mode(variant: str, pi_mode: PiMode, f_pwm: float, pi_tc: float | None = None, pi_k1: float = 1.44) -> tuple[float, float] | None:
+    """Auto-suggested (Kp, Ki) for variant + mode. None for manual."""
+    m = CATALOG[variant]
+    if pi_mode == "modulus_optimum":
+        return modulus_optimum_tuning(m.R_s, m.L_s, float(f_pwm))
+    if pi_mode == "skogestad":
+        return skogestad_tuning(m.R_s, m.L_s, float(f_pwm), k1=float(pi_k1), Tc=pi_tc)
+    return None
+
+
+def _resolve_gains(p: SimParams, motor: PmsmModel) -> tuple[float, float]:
+    if p.pi_mode == "manual" and p.Kp is not None and p.Ki is not None:
+        return float(p.Kp), float(p.Ki)
+    if p.pi_mode == "skogestad":
+        return skogestad_tuning(motor.R_s, motor.L_s, p.f_pwm, k1=p.pi_k1, Tc=p.pi_tc)
+    return modulus_optimum_tuning(motor.R_s, motor.L_s, p.f_pwm)
+
+
+def _params_dict_for_hash(p: SimParams) -> dict:
+    """The dict the old Dash callback hashed at app.py:648-678."""
+    return {
+        "variant_name": p.variant_name,
+        "f_pwm": float(p.f_pwm),
+        "t_dead": float(p.t_dead),
+        "n_bits": int(p.n_bits),
+        "theta_offset": float(p.theta_offset),
+        "A1": float(p.A1),
+        "k1": int(p.k1),
+        "phi1": float(p.phi1),
+        "A2": float(p.A2),
+        "k2": int(p.k2),
+        "phi2": float(p.phi2),
+        "A3": float(p.A3),
+        "k3": int(p.k3),
+        "phi3": float(p.phi3),
+        "ts_enc": float(p.ts_enc),
+        "dt_sim": None if p.dt_sim is None else float(p.dt_sim),
+        "t_end": float(p.t_end),
+        "t_step": float(p.t_step),
+        "t_step_frac": float(p.t_step_frac),
+        "Tf": None if p.Tf is None else float(p.Tf),
+        "pi_mode": p.pi_mode,
+        "Kp": float(p.Kp) if p.Kp is not None else None,
+        "Ki": float(p.Ki) if p.Ki is not None else None,
+        "pi_tc": None if p.pi_tc is None else float(p.pi_tc),
+        "pi_k1": float(p.pi_k1) if p.pi_k1 is not None else 1.44,
+        "inverter_mode": p.inverter_mode,
+        "pwm_mode": p.pwm_mode,
+        "filter_enabled": bool(p.filter_enabled),
+        "filter_fc": float(p.filter_fc),
+    }
+
+
+def _tracking_err_pct(df: pl.DataFrame) -> float:
+    """RMS(i_q - i_q_ref) / RMS(i_q_ref) over trailing 80%, as percent."""
+    tail = df.slice(int(0.8 * df.height), df.height - int(0.8 * df.height))
+    err = (tail["i_q_meas"] - tail["i_q_ref"]).to_numpy()
+    ref = tail["i_q_ref"].to_numpy()
+    err_rms = float(np.sqrt(np.mean(err * err)))
+    ref_floor = max(float(np.sqrt(np.mean(ref * ref))), float(abs(ref.mean())), 1e-9)
+    return 100.0 * err_rms / ref_floor
+
+
+def run_simulation(p: SimParams) -> tuple[pl.DataFrame, SimMeta]:
+    """Run one sim end-to-end. Writes parquet, returns DataFrame + metadata.
+
+    Raises ValueError on invalid inputs (unknown variant, t_step >= t_end).
+    Anything else (FMU faults, numerical blow-ups) propagates.
+    """
+    if p.variant_name not in CATALOG:
+        msg = f"unknown variant: {p.variant_name!r}"
+        raise ValueError(msg)
+    if p.t_step >= p.t_end:
+        msg = f"t_step ({p.t_step}) must be < t_end ({p.t_end})"
+        raise ValueError(msg)
+
+    motor = CATALOG[p.variant_name]
+    Vdc = float(motor.rated_voltage)
+    params_for_hash = _params_dict_for_hash(p)
+    params_json = canonical_params_json(params_for_hash)
+    h = params_hash(params_json)
+    out_path = output_path_for(motor)
+
+    L_f, C_f, R_d = FilterConfig.derive_components(motor.L_s, p.filter_fc)
+    encoder_cfg = EncoderConfig(
+        n_bits=p.n_bits,
+        theta_offset=p.theta_offset,
+        A1=p.A1,
+        k1=p.k1,
+        phi1=p.phi1,
+        A2=p.A2,
+        k2=p.k2,
+        phi2=p.phi2,
+        A3=p.A3,
+        k3=p.k3,
+        phi3=p.phi3,
+        Ts_enc=p.ts_enc,
+    )
+    TL = default_tl_ref(motor, t_end=p.t_end, t_step=p.t_step, frac=p.t_step_frac)
+    Kp_used, Ki_used = _resolve_gains(p, motor)
+
+    foc_cfg = FocConfig(
+        R_s=motor.R_s,
+        L_s=motor.L_s,
+        psi_m=motor.psi_m,
+        p=motor.p,
+        Vdc=Vdc,
+        f_pwm=p.f_pwm,
+        Kp=Kp_used,
+        Ki=Ki_used,
+    )
+    controller = FOCController(foc_cfg)
+    inverter = Inverter(InverterConfig(Vdc=Vdc, f_pwm=p.f_pwm, t_dead=p.t_dead, pwm_mode=p.pwm_mode))
+    encoder = EncoderMeasurement(FluxEncoder(encoder_cfg), p=motor.p)
+    motor_fmu = PMSMAbcModel(motor)
+    lcl_filter = LCLFilter(L_f=L_f, C_f=C_f, R_d=R_d) if p.filter_enabled else None
+
+    with Simulator(motor_fmu, encoder, controller, inverter, filter=lcl_filter) as sim:
+        df = sim.run(TL, T_s=p.dt_sim, T_f=p.Tf, inverter_mode=p.inverter_mode)
+
+    write_parquet(
+        df,
+        motor=motor,
+        controller=controller,
+        Vdc=Vdc,
+        f_pwm=p.f_pwm,
+        t_dead=p.t_dead,
+        ts_enc=p.ts_enc,
+        inverter_mode=p.inverter_mode,
+        pwm_mode=p.pwm_mode,
+        filter_enabled=p.filter_enabled,
+        filter_fc=p.filter_fc,
+        L_f=L_f,
+        C_f=C_f,
+        R_d=R_d,
+        pi_mode=p.pi_mode,
+        pi_tc=p.pi_tc,
+        pi_k1=p.pi_k1,
+        params_json=params_json,
+        params_hash_str=h,
+        out_path=out_path,
+    )
+    parquet_meta = read_metadata(out_path)
+    meta = SimMeta(
+        params_hash=h,
+        rows=df.height,
+        err_pct=_tracking_err_pct(df),
+        artifact_name=out_path.name,
+        foc_kp=controller.Kp,
+        foc_ki=controller.Ki,
+        pi_mode=p.pi_mode,
+        motor_family=motor.family,
+        motor_name=motor.name,
+        rated_voltage=Vdc,
+        parquet_meta=parquet_meta,
+    )
+    return df, meta

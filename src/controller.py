@@ -93,9 +93,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from model import FocConfig
-from transform import abc_to_dq, dq_to_abc
-from tuning import auto_pi_gains_from_bw
+from src.model import FocConfig
+from src.transform import abc_to_dq, dq_to_abc
+from src.tuning import auto_pi_gains_from_bw
 
 
 @dataclass

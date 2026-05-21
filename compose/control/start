@@ -4,4 +4,5 @@ set -o errexit
 set -o pipefail
 set -o nounset
 
-.venv/bin/python src/app.py
+cd /app
+exec .venv/bin/python -m src.main
