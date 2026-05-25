@@ -20,13 +20,13 @@ Decoupling and BEMF feedforward
 The dq stator equations include cross-coupling and BEMF terms:
 
     v_d = R_s · i_d + L_s · di_d/dt − ω_e · L_s · i_q
-    v_q = R_s · i_q + L_s · di_q/dt + ω_e · L_s · i_d + ω_e · ψ_m
+    v_q = R_s · i_q + L_s · di_q/dt + ω_e · L_s · i_d + ω_e · λ_PM
 
 The FOC injects the two cross-coupling and BEMF terms as feedforward so the
 per-axis plant seen by each PI reduces to the first-order R/L circuit:
 
     ff_d = −ω_e · L_s · i_q_meas
-    ff_q =  ω_e · L_s · i_d_meas + ω_e · ψ_m
+    ff_q =  ω_e · L_s · i_d_meas + ω_e · λ_PM
     v_d_raw = PI_d + ff_d
     v_q_raw = PI_q + ff_q
 
@@ -138,7 +138,7 @@ class FOCController:
         else:
             # Auto-tune: pole-zero cancellation. See module docstring. This
             # fallback path is LR-only — the filter-aware tuning lives in
-            # simulator._resolve_gains where FilterConfig is in scope.
+            # drivetrain._resolve_gains where FilterConfig is in scope.
             result = auto_pi_gains_from_bw(cfg.bw_hz, Rs=cfg.R_s, Ls=cfg.L_s, plant_type="lr")
             self.Kp, self.Ki = result.Kp, result.Ki
         self.pi_d = PIController(Kp=self.Kp, Ki=self.Ki)
@@ -147,7 +147,11 @@ class FOCController:
         self.V_max = cfg.Vdc / 2.0
         # Plant params needed for dq decoupling and BEMF feedforward.
         self.L_s = cfg.L_s
-        self.psi_m = cfg.psi_m
+        self.lambda_PM = cfg.lambda_PM
+        # Active-damping gain on capacitor-current estimate. 0.0 disables.
+        # Only meaningful when the LCL filter is engaged AND the simulator
+        # is feeding ic_d_hat / ic_q_hat from the observer into step().
+        self.Kd: float = float(cfg.Kd) if cfg.Kd is not None else 0.0
         # Last-step internals exposed for logging.
         self.i_d_meas: float = 0.0
         self.i_q_meas: float = 0.0
@@ -155,6 +159,8 @@ class FOCController:
         self.v_q: float = 0.0
         self.ff_d: float = 0.0
         self.ff_q: float = 0.0
+        self.ad_d: float = 0.0
+        self.ad_q: float = 0.0
         self.sat_d: bool = False
         self.sat_q: bool = False
 
@@ -164,7 +170,20 @@ class FOCController:
         # per PWM cycle — standard digital-FOC convention).
         return self.cfg.f_pwm
 
-    def step(self, i_a: float, i_b: float, i_c: float, theta_e_meas: float, omega_e_meas: float, i_d_ref: float, i_q_ref: float, dt: float) -> tuple[float, float, float]:
+    def step(
+        self,
+        i_a: float,
+        i_b: float,
+        i_c: float,
+        theta_e_meas: float,
+        omega_e_meas: float,
+        i_d_ref: float,
+        i_q_ref: float,
+        dt: float,
+        *,
+        ic_d_hat: float = 0.0,
+        ic_q_hat: float = 0.0,
+    ) -> tuple[float, float, float]:
         """One FOC tick.
 
         Inputs:
@@ -173,6 +192,11 @@ class FOCController:
             omega_e_meas      measured electrical speed [rad/s] (= p · ω_m_meas)
             i_d_ref, i_q_ref  current references [A]
             dt                control tick period [s]
+            ic_d_hat,         observer estimates of the LCL capacitor current
+            ic_q_hat          [A] per axis (zero when LCL not engaged). Used
+                              with ``self.Kd`` to inject ``-Kd · ic_hat`` as
+                              active LCL-resonance damping before vector
+                              saturation.
 
         Returns continuous (v_a_ref, v_b_ref, v_c_ref) for the modulator.
         """
@@ -185,10 +209,17 @@ class FOCController:
 
         # Decoupling + BEMF feedforward (matches the dq plant equations).
         ff_d = -omega_e_meas * self.L_s * i_q_meas
-        ff_q = omega_e_meas * self.L_s * i_d_meas + omega_e_meas * self.psi_m
+        ff_q = omega_e_meas * self.L_s * i_d_meas + omega_e_meas * self.lambda_PM
 
-        v_d_raw = v_d_pi + ff_d
-        v_q_raw = v_q_pi + ff_q
+        # Active damping: virtual resistor across the LCL capacitor, driven
+        # by the observer's capacitor-current estimate. Suppresses the LCL
+        # resonance that the passive R_d alone leaves under-damped. Zero
+        # contribution when self.Kd == 0 or ic_*_hat == 0.
+        ad_d = -self.Kd * ic_d_hat
+        ad_q = -self.Kd * ic_q_hat
+
+        v_d_raw = v_d_pi + ff_d + ad_d
+        v_q_raw = v_q_pi + ff_q + ad_q
 
         # Vector saturation in the dq frame.
         mag = math.sqrt(v_d_raw * v_d_raw + v_q_raw * v_q_raw)
@@ -223,5 +254,6 @@ class FOCController:
         self.i_d_meas, self.i_q_meas = i_d_meas, i_q_meas
         self.v_d, self.v_q = v_d, v_q
         self.ff_d, self.ff_q = ff_d, ff_q
+        self.ad_d, self.ad_q = ad_d, ad_q
         self.sat_d = self.sat_q = sat
         return v_a_ref, v_b_ref, v_c_ref

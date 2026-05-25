@@ -11,6 +11,7 @@ import { InverterSection } from './InverterSection';
 import { MotorSection } from './MotorSection';
 import { TimingSection, TrajectorySection } from './SimulationSection';
 import { SuggestPiGains } from './SuggestPiGains';
+import { SuggestVdc } from './SuggestVdc';
 
 interface ConfigPanelProps {
   variants: Variant[];
@@ -39,6 +40,7 @@ export function ConfigPanel({ variants, onSubmit, loading }: ConfigPanelProps) {
           <ControllerSection />
           <DebugSection />
           <SuggestPiGains variants={variants} />
+          <SuggestVdc variants={variants} />
         </div>
         <div className="px-4 py-3 border-t border-alva-border bg-alva-panel">
           <button type="submit" className="alva-btn" disabled={loading}>

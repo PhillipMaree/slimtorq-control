@@ -12,7 +12,7 @@ Three layers:
 3. PmsmModel is the flat sim-facing shape consumed by the runtime
    (controller, simulator). For catalog motors it is produced by
    CatalogMotor.to_pmsm_model(); for synthetic motors it can be
-   constructed directly with explicit R_s / L_s / psi_m / J.
+   constructed directly with explicit R_s / L_s / lambda_PM / J.
 
 The catalog loader (load_catalog, _build_pmsm_model, validate) lives at the
 bottom of the file. `python -m src.model` runs the cross-check.
@@ -290,7 +290,7 @@ GCM2_TO_KGM2 = 1e-7  # g·cm^2 -> kg·m^2 (1e-3 kg * 1e-4 m^2)
 class CatalogMotor(BaseModel):
     """Raw catalog inputs + decoded SKU; derives phase-domain parameters.
 
-    All derivations (R_s, L_s, psi_m, J) live below as @computed_field
+    All derivations (R_s, L_s, lambda_PM, J) live below as @computed_field
     properties whose docstrings cite the formula in catalog REV1.8 page 35.
     Call `.to_pmsm_model()` to obtain the flat PmsmModel the runtime expects.
     """
@@ -337,13 +337,13 @@ class CatalogMotor(BaseModel):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def psi_m(self) -> float:
+    def lambda_PM(self) -> float:
         """Permanent-magnet flux linkage [Wb].
 
         Derivation from the PMSM torque equation in the amplitude-invariant
         dq frame:
 
-            T_e = (3/2) * p * psi_m * i_q_peak                            (1)
+            T_e = (3/2) * p * lambda_PM * i_q_peak                            (1)
 
         The catalog torque constant K_T (page 35) is defined per RMS current:
 
@@ -352,7 +352,7 @@ class CatalogMotor(BaseModel):
         Amplitude-invariant Clarke gives i_q_peak = sqrt(2) * I_q_rms, so
         substituting into (1) and combining with (2):
 
-            psi_m = K_T / (1.5 * p * sqrt(2)).
+            lambda_PM = K_T / (1.5 * p * sqrt(2)).
         """
         return self.K_T / (1.5 * self.p * SQRT2)
 
@@ -373,7 +373,7 @@ class CatalogMotor(BaseModel):
             name=self.sku.canonical_name,
             R_s=self.R_s,
             L_s=self.L_s,
-            psi_m=self.psi_m,
+            lambda_PM=self.lambda_PM,
             p=self.p,
             J=self.J,
             rated_voltage=self.rated_voltage,
@@ -397,7 +397,7 @@ class PmsmModel(BaseModel):
     name: str  # composite: "<sku>-<winding_type>", e.g. "STM-75-20-L-4Y"
     R_s: float  # phase resistance [Ohm]
     L_s: float  # synchronous inductance [H]
-    psi_m: float  # PM flux linkage [Wb]
+    lambda_PM: float  # noqa: N815 — math notation λ_PM (subscript PM = Permanent Magnet); flux linkage [Wb]
     p: int  # pole pairs
     J: float  # rotor inertia [kg.m^2]
     rated_voltage: float  # [V]
@@ -416,7 +416,7 @@ class CatalogVariant(BaseModel):
     p: int
     R_s: float
     L_s: float
-    psi_m: float
+    lambda_PM: float  # noqa: N815 — math notation λ_PM (Permanent Magnet flux linkage)
     J: float
     rated_voltage: float
     i_cont: float
@@ -431,7 +431,7 @@ class CatalogVariant(BaseModel):
             p=m.p,
             R_s=m.R_s,
             L_s=m.L_s,
-            psi_m=m.psi_m,
+            lambda_PM=m.lambda_PM,
             J=m.J,
             rated_voltage=m.rated_voltage,
             i_cont=m.i_cont,
@@ -479,13 +479,14 @@ class FocConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
     R_s: float
     L_s: float
-    psi_m: float
+    lambda_PM: float  # noqa: N815 — math notation λ_PM (Permanent Magnet flux linkage)
     p: int
     Vdc: float  # DC-link voltage [V]
     f_pwm: float  # PWM carrier frequency [Hz]
     bw_hz: float = 1000.0  # auto-tune target bandwidth
     Kp: float | None = None
     Ki: float | None = None
+    Kd: float | None = None
 
 
 class InverterConfig(BaseModel):
@@ -514,9 +515,16 @@ class FilterConfig(BaseModel):
 
     Component values are derived from a target cutoff frequency rather than
     exposed directly — `derive_components(L_s, f_c_target)` returns
-    `(L_f, C_f, R_d)` with L_f one-quarter of the motor inductance (textbook
-    rule of thumb), C_f sized to put the LC corner at f_c_target, and R_d at
-    one-third of the characteristic impedance for moderate passive damping.
+    `(L_f, C_f, R_d)` with ``L_f = L_s`` (matched inductance), ``C_f`` sized
+    to put the LC corner at ``f_c_target``, and ``R_d`` at one-third of the
+    characteristic impedance for moderate passive damping.
+
+    Matching ``L_f`` to ``L_s`` (instead of the older ``L_s/4`` rule of thumb)
+    pushes the LCL resonance higher (``f_res ≈ √2 · f_c_target``) and gives
+    more inverter-side ripple attenuation; the 3rd-order pole-placement
+    tuner is replaced by Skogestad + analytic ``K_d``, which doesn't suffer
+    the degenerate-``p_4`` failure that the L_s/4 design caused for high-L
+    windings (e.g. 8-turn variants).
     """
 
     model_config = ConfigDict(frozen=True)
@@ -525,7 +533,7 @@ class FilterConfig(BaseModel):
 
     @staticmethod
     def derive_components(L_s: float, f_c_target: float) -> tuple[float, float, float]:
-        L_f = L_s / 4.0
+        L_f = L_s
         C_f = 1.0 / ((2.0 * math.pi * f_c_target) ** 2 * L_f)
         R_d = math.sqrt(L_f / C_f) / 3.0
         return L_f, C_f, R_d
@@ -639,7 +647,7 @@ class SimParams(BaseModel):
     dt_sim: float | None = None
     t_end: float = 0.05
     t_step: float = 0.005
-    t_step_frac: float = 2.0 / 3.0
+    t_step_frac: float | None = None
     Tf: float | None = None
     pi_mode: PiMode = "modulus_optimum"
     Kp: float | None = None
@@ -650,6 +658,59 @@ class SimParams(BaseModel):
     pwm_mode: PwmMode = "sine"
     filter_enabled: bool = False
     filter_fc: float = 5000.0
+    # DC bus voltage [V]. The catalog's "rated_voltage" is the motor's BEMF at
+    # its top speed, not the recommended bus. A realistic drive supplies
+    # roughly 1.3-2* the rated voltage so the PI controller has headroom for
+    # the R·i_q drop and L·di_q/dt transient inside the linear PWM range.
+    # When None, Drivetrain.build defaults to 1.5 * motor.rated_voltage.
+    vdc: float | None = None
+    # Damping ratio of the dominant closed-loop pole pair when LCL active
+    # damping is engaged (filter_enabled=True). 0.7 is the standard critical
+    # damping target — drops the resonance peak without over-slowing the
+    # transient. Lower values give faster but more oscillatory response;
+    # higher values give over-damped (slower) response.
+    zeta_target: float = 0.7
+    # Luenberger observer pole multiplier — observer poles placed at
+    # α · ω_res (all three coincident-real, via Ackermann). 3× LCL
+    # resonance is the standard "fast enough to track the plant, slow
+    # enough to not amplify measurement noise" tradeoff. Only consulted
+    # when filter_enabled=True.
+    observer_pole_multiplier: float = 3.0
+
+
+class RippleStats(BaseModel):
+    """Peak-to-peak ripple on a steady-state-tail signal, with rated and
+    commanded percentages. ``pct_cmd`` is ``None`` when the commanded value
+    is within 1% of |rated| (percentage not meaningful)."""
+
+    model_config = ConfigDict(frozen=True)
+    delta_pp: float  # peak-to-peak ripple, signal's native units
+    pct_rated: float  # 100 * delta_pp / |rated|
+    pct_cmd: float | None  # 100 * delta_pp / |cmd|, None if cmd ≈ 0
+
+    @classmethod
+    def from_signal(cls, signal: np.ndarray, *, rated: float, cmd: float | None, window_samples: int | None = None) -> RippleStats:
+        """Compute peak-to-peak ripple on ``signal`` and the rated/commanded
+        percentages. ``cmd=None`` (or near zero) leaves ``pct_cmd`` as None.
+
+        When ``window_samples`` is supplied, ``delta_pp`` is the maximum
+        peak-to-peak observed inside any sliding window of that width —
+        useful for phase-frame signals where a rotating fundamental would
+        otherwise dominate the global pp. Pick the window short enough that
+        the fundamental can't swing meaningfully across it (e.g. a few PWM
+        periods, well shorter than the electrical period at top speed).
+        """
+        if window_samples is not None and window_samples > 1 and window_samples <= signal.size:
+            from numpy.lib.stride_tricks import sliding_window_view
+
+            windows = sliding_window_view(signal, window_samples)
+            delta_pp = float((windows.max(axis=1) - windows.min(axis=1)).max())
+        else:
+            delta_pp = float(signal.max() - signal.min())
+        pct_cmd: float | None = None
+        if cmd is not None and abs(cmd) > 0.01 * abs(rated):
+            pct_cmd = 100.0 * delta_pp / abs(cmd)
+        return cls(delta_pp=delta_pp, pct_rated=100.0 * delta_pp / abs(rated), pct_cmd=pct_cmd)
 
 
 class SimMeta(BaseModel):
@@ -665,6 +726,9 @@ class SimMeta(BaseModel):
     motor_family: str
     motor_name: str
     rated_voltage: float
+    iq_ripple: RippleStats
+    te_ripple: RippleStats
+    ia_ripple: RippleStats  # pct_cmd is always None (no commanded phase current)
     parquet_meta: dict[str, str] = Field(default_factory=dict)
 
 
@@ -677,7 +741,7 @@ def _build_pmsm_model(family: FamilySpec, variant: VariantSpec, winding: Winding
 
     The serial number `f"{variant.sku}-{winding.winding_type}"` is decoded
     into a MotorSku; raw catalog values are copied into a CatalogMotor,
-    which derives R_s / L_s / psi_m / J per catalog REV1.8 page 35 via its
+    which derives R_s / L_s / lambda_PM / J per catalog REV1.8 page 35 via its
     @computed_field properties; the result is then converted to the flat
     PmsmModel the runtime consumes.
     """
@@ -705,9 +769,9 @@ def load_catalog(path: Path = DEFAULT_CATALOG_PATH) -> dict[str, PmsmModel]:
 
 
 def predicted_continuous_torque(m: PmsmModel) -> float:
-    """T_e = 1.5 * p * psi_m * (sqrt(2) * i_cont). Should match m.te_cont_cat."""
+    """T_e = 1.5 * p * lambda_PM * (sqrt(2) * i_cont). Should match m.te_cont_cat."""
     iq_peak = SQRT2 * m.i_cont
-    return 1.5 * m.p * m.psi_m * iq_peak
+    return 1.5 * m.p * m.lambda_PM * iq_peak
 
 
 def _validate_decoder() -> None:
@@ -754,14 +818,14 @@ def _validate_worked_example() -> None:
     print(f"  p              = {motor.p}")
     print(f"  R_s            = {motor.R_s:.4f}  Ohm        (= 0.5 * R_LL,            Star,  p.35)")
     print(f"  L_s            = {motor.L_s * 1e6:.2f}    uH         (= 0.5 * L_LL * 1e-6,     Star,  p.35)")
-    print(f"  psi_m          = {motor.psi_m * 1e3:.4f}  mWb        (= K_T / (1.5 * p * sqrt(2)))")
+    print(f"  lambda_PM          = {motor.lambda_PM * 1e3:.4f}  mWb        (= K_T / (1.5 * p * sqrt(2)))")
     print(f"  J              = {motor.J:.3e} kg.m^2     (= J_gcm2 * 1e-7)")
     print(f"  rated_voltage  = {motor.rated_voltage}    V")
     print(f"  i_cont         = {motor.i_cont}   Arms")
 
     assert math.isclose(motor.R_s, 0.5 * 0.457, rel_tol=1e-9), motor.R_s
     assert math.isclose(motor.L_s, 0.5 * 15.4e-6, rel_tol=1e-9), motor.L_s
-    assert math.isclose(motor.psi_m, 0.109 / (1.5 * 18 * SQRT2), rel_tol=1e-9), motor.psi_m
+    assert math.isclose(motor.lambda_PM, 0.109 / (1.5 * 18 * SQRT2), rel_tol=1e-9), motor.lambda_PM
     assert math.isclose(motor.J, 620 * GCM2_TO_KGM2, rel_tol=1e-9), motor.J
     print("  all derivations match catalog REV1.8 p.35\n")
 

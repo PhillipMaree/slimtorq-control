@@ -15,7 +15,7 @@ The motor is parameterised from [config/catalog.yaml](config/catalog.yaml) again
 ## Architecture
 
 One container, one port. FastAPI hosts `/api/*` (the simulator) and `/`
-(the static Next.js bundle). The React app POSTs a 28-field `SimParams`
+(the static Next.js bundle). The React app POSTs a 32-field `SimParams`
 JSON, gets metadata back, fetches the trace as Apache Arrow IPC, and
 renders 12 ECharts figures client-side. Parquet artifacts (with
 `slimtorq.*` metadata) remain the canonical persistence — external
@@ -25,7 +25,7 @@ consumers (polars, duckdb, …) read them unchanged.
 flowchart LR
     subgraph Frontend["Browser — Next.js static bundle"]
         direction TB
-        F1["ConfigPanel<br/>(28 react-hook-form inputs)"]
+        F1["ConfigPanel<br/>(32 react-hook-form inputs)"]
         F1 -->|"POST /api/simulate"| F2
         F2["lib/api.ts<br/>Arrow IPC decode"]
         F2 --> F3["PlotPanel<br/>12 ECharts modules"]
@@ -44,7 +44,7 @@ flowchart LR
     subgraph Pipeline["Simulator — orchestrates per-tick signal flow"]
         direction LR
         TL["TL_ref(t)"] --> C
-        C["controller<br/>(FOCController)<br/>Clarke → Park → 2× PI<br/>→ dq decoupling + BEMF FF<br/>→ vector sat → InvPark → InvClarke"]
+        C["controller<br/>(FOCController)<br/>Clarke → Park → 2× PI<br/>→ dq decoupling + BEMF FF<br/>→ active damping (−K_d·ic_hat)<br/>→ vector sat → InvPark → InvClarke"]
         C -->|"v_a_ref, v_b_ref, v_c_ref"| I
         I["inverter<br/>(PWM + dead-time)"]
         I -->|"v_a, v_b, v_c"| M
@@ -66,6 +66,12 @@ flowchart LR
 
 The PWM modulator is owned by the `Inverter` — `Inverter.step()` does PWM compare + dead-time-aware leg voltages in one call. Between FOC ticks the FOC's last `v_abc_ref` is held by ZOH and fed into the inverter every `T_s`.
 
+**Sampling phase.** `Simulator.run(sampling_phase=...)` picks when in the PWM cycle the FOC samples the current:
+
+- **`"valley"`** (default) — FOC tick at every carrier valley (`t = T_pwm, 2·T_pwm, …`).
+- **`"midpoint"`** — single sample at every carrier peak (`t = T_pwm/2, …`). Equivalent to valley for sine PWM with a linear in-period ramp.
+- **`"double"`** — snapshot at the carrier peak, averaged with the valley sample at the FOC tick. Cancels the linear in-period ramp exactly and rejects dead-time-induced edge asymmetry — the textbook production technique. Pinned ~25% peak-to-peak `i_q` ripple drop on the 2D winding vs single-sample modes (see [tests/test_sampling_phase.py](tests/test_sampling_phase.py)).
+
 ## Physical effects modelled
 
 Why this architecture (and not the simpler "FOC outputs continuous v_abc straight to the motor"):
@@ -75,7 +81,7 @@ Why this architecture (and not the simpler "FOC outputs continuous v_abc straigh
 | **Switching ripple** in i_abc at f_pwm | Naturally — `Inverter` emits square ±Vdc/2 phase voltages; FMU integrates them. | Triangular ripple of amplitude `≈ Vdc·T_pwm/(8·L_s)` on top of the fundamental current. Drives iron losses, EMI, audible noise, current-sensor bandwidth. |
 | **Dead time** (1–3 µs gate-driver blanking) | `Inverter` tracks per-leg t_since_edge; during the t_dead window, freewheel diode clamps v_k = −sign(i_k)·Vdc/2. | 5th + 7th harmonic distortion in i_abc; small low-frequency torque ripple FOC's integrator absorbs. Set `t_dead = 0` to disable. |
 | **Vdc utilisation limit** (sinusoidal-PWM linear range `\|v_phase\| ≤ Vdc/2`) | `FOCController` clips `(v_d, v_q)` to magnitude `V_max = Vdc/2` *before* inverse Park. Anti-windup freezes both integrators when the vector saturates. | Beyond the envelope, achievable torque plateaus; the PI-performance plot's `\|v_dq\|` trace clamps at the red line. |
-| **dq cross-coupling + BEMF** (`−ω_e·L_s·i_q` on d-axis; `+ω_e·L_s·i_d + ω_e·ψ_m` on q-axis) | `FOCController` adds them as feedforward to the raw PI output (so the per-axis plant the PI sees collapses to a pure R/L circuit; vector saturation acts on the combined PI + FF command). | At high speed the BEMF term `ω_e·ψ_m` dominates v_q; without feedforward the PI integrator absorbs it with tracking lag. With feedforward, i_q tracks immediately and the integrator only handles modelling error. |
+| **dq cross-coupling + BEMF** (`−ω_e·L_s·i_q` on d-axis; `+ω_e·L_s·i_d + ω_e·λ_PM` on q-axis) | `FOCController` adds them as feedforward to the raw PI output (so the per-axis plant the PI sees collapses to a pure R/L circuit; vector saturation acts on the combined PI + FF command). | At high speed the BEMF term `ω_e·λ_PM` dominates v_q; without feedforward the PI integrator absorbs it with tracking lag. With feedforward, i_q tracks immediately and the integrator only handles modelling error. |
 
 ## One tick of the inner loop
 
@@ -92,8 +98,11 @@ sequenceDiagram
     M-->>SIM: i_abc, θ_m, ω_m, T_e
     SIM->>E: step(θ_m, ω_m, i_abc, t)
     E-->>SIM: θ_m_meas, ω_m_meas, θ_e_meas, i_abc_meas
+    opt LCL filter engaged
+        SIM->>SIM: observer.predict_update(v_inv, y_meas) → ic_d_hat, ic_q_hat
+    end
     alt control-tick boundary (every dt_ctrl)
-        SIM->>C: step(i_abc_meas, θ_e_meas, ω_e_meas, i_d_ref, i_q_ref, dt_ctrl)
+        SIM->>C: step(i_abc_meas, θ_e_meas, ω_e_meas, i_d_ref, i_q_ref, dt_ctrl, ic_d_hat, ic_q_hat)
         C-->>SIM: v_a_ref, v_b_ref, v_c_ref
     end
     SIM->>I: step(v_*_ref, i_abc, t, T_s)
@@ -130,6 +139,9 @@ graph TD
     PMSMAbcModel"]
     fmu["modelica/
     SlotlessPMSM_abc.fmu"]
+    drivetrain["drivetrain.py
+    Drivetrain.build (assembled drive)
+    + gain-resolution policy"]
     simulator["simulator.py
     Simulator orchestrator +
     SimParams pipeline +
@@ -147,14 +159,15 @@ graph TD
     model --> controller
     model --> switching
     model --> encoder
-    model --> simulator
+    model --> drivetrain
     tuning --> controller
-    tuning --> simulator
+    tuning --> drivetrain
     transform --> controller
-    encoder --> simulator
-    controller --> simulator
-    switching --> simulator
+    encoder --> drivetrain
+    controller --> drivetrain
+    switching --> drivetrain
     fmu --> switching
+    drivetrain --> simulator
     simulator --> parquet
     simulator --> server
     server --> frontend
@@ -166,17 +179,18 @@ graph TD
 | [modelica/Alva.mo](modelica/Alva.mo) | `SlotlessPMSM_abc`: surface-PM motor, abc external interface, dq internal dynamics on the **true** rotor angle, optional 6th-electrical-harmonic torque ripple. |
 | [modelica/build_fmu.mos](modelica/build_fmu.mos) | `omc` build script producing `SlotlessPMSM_abc.fmu`. |
 | [config/catalog.yaml](config/catalog.yaml) | Nested family → variant → winding data. Every cell is `{unit, value}` so units are explicit. |
-| [src/model.py](src/model.py) | All Pydantic v2 models — catalog-parsing schema, the `MotorSku` + `decode_sku` serial decoder (catalog REV1.8 p.28), the `CatalogMotor` connection-aware computed-field bridge (R_s / L_s / ψ_m / J per p.35), the simulation-facing flat types (`PmsmModel`, `EncoderConfig`, `FocConfig`, `InverterConfig`, `TLRef`), and the catalog loader. `python -m src.model` exercises the decoder, prints the STM-75-20-L-4Y worked example, then cross-checks every variant against its catalog continuous-torque. |
-| [src/tuning.py](src/tuning.py) | Plant-aware PI tuning. Each rule (`auto_pi_gains_from_bw`, `modulus_optimum_tuning`, `skogestad_tuning`) accepts a `plant_type ∈ {lr, lcl_conservative, lcl_with_active_damping}` and returns a `PITuningResult` dataclass with gains + diagnostics. LR uses `(R_s, L_s)`; LCL modes use the low-frequency equivalent `(L_eq, R_eq) = (L1 + Lload, R1 + Rload)` and reject the tuning if the implied closed-loop bandwidth gets too close to the LCL resonance (`ω_bw > ω_res / margin`, default margin 10 conservative / 5 with active damping) or to the PWM frequency (`f_bw > f_pwm / 10`). The simulator auto-derives `plant_type` from `FilterConfig.enabled`. |
-| [src/observer.py](src/observer.py) | Single-axis Luenberger state observer for the LCL plant `x = [i1, vc, im]^T`. Forward-Euler discrete update, configurable gain `L`, three measurement modes (`motor_current`, `inverter_current`, `capacitor_voltage`). Reused per dq axis — `Simulator` instantiates one `LCLObserver` for d and one for q when the LCL filter is engaged in switching mode. The estimated capacitor current `ic_hat = i1_hat - im_hat` is logged for future active-damping feedback. `python -m src.observer` runs a smoke test. |
+| [src/model.py](src/model.py) | All Pydantic v2 models — catalog-parsing schema, the `MotorSku` + `decode_sku` serial decoder (catalog REV1.8 p.28), the `CatalogMotor` connection-aware computed-field bridge (R_s / L_s / λ_PM / J per p.35), the simulation-facing flat types (`PmsmModel`, `EncoderConfig`, `FocConfig`, `InverterConfig`, `TLRef`), and the catalog loader. `python -m src.model` exercises the decoder, prints the STM-75-20-L-4Y worked example, then cross-checks every variant against its catalog continuous-torque. |
+| [src/tuning.py](src/tuning.py) | Plant-aware PI tuning. Each rule (`auto_pi_gains_from_bw`, `modulus_optimum_tuning`, `skogestad_tuning`) accepts a `plant_type ∈ {lr, lcl_conservative, lcl_with_active_damping}` and returns a `PITuningResult` dataclass with gains + diagnostics (including the optional `Kd` field used by the LCL-with-active-damping path). LR uses `(R_s, L_s)`; LCL modes use the low-frequency equivalent `(L_eq, R_eq) = (L1 + Lload, R1 + Rload)` and reject the tuning if the implied closed-loop bandwidth gets too close to the LCL resonance (`ω_bw > ω_res / margin`, default margin 10 conservative / 5 with active damping) or to the PWM frequency (`f_bw > f_pwm / 10`). The drivetrain auto-routes to `"lcl_with_active_damping"` when `filter_enabled=True`; the active-damping `K_d` is computed analytically in `drivetrain._auto_tune` from `SimParams.zeta_target`. |
+| [src/observer.py](src/observer.py) | Single-axis Luenberger state observer for the LCL plant `x = [i1, vc, im]^T`. Forward-Euler discrete update. **Observer gain `L` is pole-placed** via `compute_observer_gain(A, C, pole)` — Ackermann's formula on the dual `(A^T, C^T)`, all three observer poles coincident-real at `−α·ω_res`. `α` (= `SimParams.observer_pole_multiplier`, default 3) is the speed-vs-noise dial. Three measurement modes (`motor_current`, `inverter_current`, `capacitor_voltage`). Reused per dq axis — `Simulator` instantiates one `LCLObserver` for d and one for q when the LCL filter is engaged in switching mode. The estimated capacitor current `ic_hat = i1_hat - im_hat` is consumed by `FOCController` as the active-damping signal (see below). `python -m src.observer` runs a smoke test. |
 | [src/transform.py](src/transform.py) | Amplitude-invariant Clarke / Park + composed `abc_to_dq`, `dq_to_abc`. `python transform.py` round-trip self-test. |
-| [src/controller.py](src/controller.py) | `PIController` (parallel-form PI with split unsaturated/integrate API for shared anti-windup), `FOCController` (Clarke → Park → 2× PI → **dq decoupling + BEMF feedforward** → **vector saturation** → InvPark → InvClarke). Exposes `f_pwm` so the Simulator can derive `dt_ctrl`. |
+| [src/controller.py](src/controller.py) | `PIController` (parallel-form PI with split unsaturated/integrate API for shared anti-windup), `FOCController` (Clarke → Park → 2× PI → **dq decoupling + BEMF feedforward** → **active damping** (`−K_d · ic_d_hat`, `−K_d · ic_q_hat`) → **vector saturation** → InvPark → InvClarke). The active-damping term is zero when no LCL is engaged. Exposes `f_pwm` so the Simulator can derive `dt_ctrl`. |
 | [src/encoder.py](src/encoder.py) | `FluxEncoder` (sample-and-hold + 3-harmonic cyclic error + N-bit quantization), `EncoderMeasurement` (composite wrapper adding `θ_e_meas` + i_abc pass-through). |
 | [src/switching.py](src/switching.py) | `PWMModulator` (centered triangular-carrier compare with selectable zero-sequence injection: sine / svpwm / dpwmmax / dpwmmin / dpwm1 / auto-hybrid), `Inverter` (PWM compare + gate-driver dead-time via freewheel-diode model — one `step()` does both), `LCLFilter` (optional per-phase Python-side LCL low-pass between inverter terminals and motor, integrated by forward Euler at the simulator's inner step), `PMSMAbcModel` (thin FMU wrapper). |
-| [src/simulator.py](src/simulator.py) | Two layers. (1) `Simulator(motor, encoder, controller, inverter)` — the multi-rate orchestrator. Context-managed (`with … as sim`) so the FMU is released on exit. `sim.run(TL_ref, T_s, T_f)` drives the multi-rate loop (`T_s` inner, `dt_ctrl = 1/f_pwm` for FOC, `Ts_enc` inside the encoder) and returns a `polars.DataFrame`. (2) `run_simulation(SimParams) -> (df, SimMeta)` — the headless pipeline: canonical-params blake2b hashing, `write_parquet` with `slimtorq.*` metadata, tracking-error summary, and the motor catalog loaded at import (`CATALOG: dict[str, PmsmModel]`). |
+| [src/drivetrain.py](src/drivetrain.py) | `Drivetrain` — the assembled closed-loop drive (motor + FOC controller + inverter + encoder + optional LCL filter). `Drivetrain.build(SimParams, PmsmModel)` is the canonical factory: it resolves every motor-aware derivation in one place — `Vdc = resolve_vdc(p, motor)` (default `1.5 · motor.rated_voltage`; override via `SimParams.vdc`), LCL components from `FilterConfig.derive_components(motor.L_s, fc)`, FOC gains via `_resolve_gains(p, motor)` returning a `(K_p, K_i, K_d)` triple — pi_mode-selected Skogestad / Modulus Optimum on the LR plant when no LCL, **Skogestad + analytic `K_d`** for the LCL path (`K_d = 2·ζ·√(L_total/C_f) − (R_1 + R_d_passive)` to damp the resonance to `SimParams.zeta_target`). Carries `observer_pole_multiplier` for the simulator. Context-managed — owns the FMU resource and releases it on exit. |
+| [src/simulator.py](src/simulator.py) | Two layers. (1) `Simulator(drive)` — the multi-rate orchestrator. Takes a fully-built `Drivetrain`; `sim.run(TL_ref, T_s, T_f, sampling_phase)` drives the multi-rate loop (`T_s` inner, `dt_ctrl = 1/f_pwm` for FOC, `Ts_enc` inside the encoder) and returns a `polars.DataFrame`. The LCL observer runs **before** the FOC tick using current dq measurements (zero-cycle delay) so `ic_hat` is in-phase with the resonance. (2) `run_simulation(SimParams) -> (df, SimMeta)` — the headless pipeline: canonical-params blake2b hashing, `write_parquet` with `slimtorq.*` metadata, tracking-error + ripple stats on `SimMeta` (`iq_ripple`, `te_ripple`, `ia_ripple` — the last computed over sliding ~2-PWM-period windows to isolate PWM ripple from the rotating fundamental). Catalog loaded at import (`CATALOG: dict[str, PmsmModel]`). Idiom: `with Drivetrain.build(p, motor) as drive: sim = Simulator(drive); df = sim.run(...)`. |
 | [src/server.py](src/server.py) | FastAPI app + uvicorn server. `get_app()`/`get_server()` are cached lazily; `run()` awaits `serve()`. Routes: `GET /health · /catalog · /defaults`, `POST /simulate` (returns `SimMeta` JSON), `GET /simulate/{hash}/data` (Apache Arrow IPC stream of the trace), `GET /artifacts/{hash}.parquet` (raw parquet download). CORS allow-list comes from [config/app.yaml](config/app.yaml). |
 | [src/main.py](src/main.py) | Async entrypoint: `asyncio.run(server.run())`. |
-| [frontend/](frontend/) | Next.js (App Router) + Apache ECharts UI. `app/page.tsx` composes `<ConfigPanel>` (28 react-hook-form inputs in sections: motor / inverter / LCL / encoder / trajectory / timing / PI / debug) and `<PlotPanel>` (12 figure modules under `components/PlotPanel/figures/`: tracking, piPerformance, vdqRoundtrip, iqZoom, iqFft, omegaFft, phaseCurrents, iabcFft, phaseVoltages, duties, encoderError, speedAndSaturation). `lib/api.ts` POSTs `/simulate` and fetches the Arrow trace; `lib/arrow.ts` exposes typed-array column accessors; `lib/fft.ts` runs the rFFT for the three spectrum figures; `lib/palette.ts` mirrors the three Alva CSS variables (`#1A1A1A`, `#E0543F`, `#5B5B5B`). Figure titles use KaTeX. |
+| [frontend/](frontend/) | Next.js (App Router) + Apache ECharts UI. `app/page.tsx` composes `<ConfigPanel>` (32 react-hook-form inputs in sections: motor / inverter / LCL / encoder / trajectory / timing / PI / debug) and `<PlotPanel>` (12 figure modules under `components/PlotPanel/figures/`: tracking, piPerformance, vdqRoundtrip, iqZoom, iqFft, omegaFft, phaseCurrents, iabcFft, phaseVoltages, duties, encoderError, speedAndSaturation). `lib/api.ts` POSTs `/simulate` and fetches the Arrow trace; `lib/arrow.ts` exposes typed-array column accessors; `lib/fft.ts` runs the rFFT for the three spectrum figures; `lib/palette.ts` mirrors the three Alva CSS variables (`#1A1A1A`, `#E0543F`, `#5B5B5B`). Figure titles use KaTeX. |
 
 ## Equations
 
@@ -193,14 +207,14 @@ v_q = −sin(θ_e)·v_α + cos(θ_e)·v_β
 
 ```
 v_d = R_s·i_d + L_s·di_d/dt − ω_e·L_s·i_q
-v_q = R_s·i_q + L_s·di_q/dt + ω_e·L_s·i_d + ω_e·ψ_m
+v_q = R_s·i_q + L_s·di_q/dt + ω_e·L_s·i_d + ω_e·λ_PM
 ```
 
 **dq decoupling + BEMF feedforward** (added to the raw PI output, before vector saturation, so each PI sees a pure R/L plant)
 
 ```
 ff_d = −ω_e_meas · L_s · i_q_meas
-ff_q =  ω_e_meas · L_s · i_d_meas + ω_e_meas · ψ_m
+ff_q =  ω_e_meas · L_s · i_d_meas + ω_e_meas · λ_PM
 v_d_raw = PI_d + ff_d
 v_q_raw = PI_q + ff_q
 ```
@@ -231,7 +245,16 @@ L_eq = L1 + Lload     R_eq = R1 + Rload
 ω_res = sqrt((L1 + Lload) / (L1 · Lload · Cf))
 ```
 
-and the tuning raises `ValueError` if the implied closed-loop bandwidth violates the resonance gate `ω_bw ≤ ω_res / margin` (default margin **10** conservative, **5** with active damping) or the PWM gate `f_bw ≤ f_pwm / 10`. The simulator auto-derives `plant_type` from `FilterConfig.enabled` — `"lcl_with_active_damping"` is supported in the API but not yet selectable from the UI; it becomes reachable once active damping is wired in.
+and the tuning raises `ValueError` if the implied closed-loop bandwidth violates the resonance gate `ω_bw ≤ ω_res / margin` (default margin **10** conservative, **5** with active damping) or the PWM gate `f_bw ≤ f_pwm / 10`. The drivetrain auto-derives `plant_type` from `FilterConfig.enabled` and uses the `lcl_with_active_damping` margin (5) — justified because **the active-damping loop is closed**: `FOCController` subtracts `K_d · ic_hat` (per axis) from `v_dq_ref` before vector saturation, with `K_d` chosen analytically to place the LCL resonance damping ratio at `SimParams.zeta_target` (default 0.7).
+
+**Active-damping `K_d` formula** (analytic, virtual-resistor across the LCL capacitor):
+
+```
+L_total = (L_1 · L_load) / (L_1 + L_load)
+K_d     = max(0, 2·ζ_target·√(L_total/C_f) − (R_1 + R_d_passive))
+```
+
+`R_d_passive = √(L_f/C_f)/3` is the existing passive damping baked into `FilterConfig.derive_components`. Active damping adds the virtual resistor on top.
 
 **LCL state observer** ([src/observer.py](src/observer.py)). Single-axis Luenberger:
 
@@ -244,7 +267,17 @@ A = [[−R1/L1, −1/L1,            0   ],
 B = [1/L1, 0, 0]^T          E = [0, 0, −1/Lload]^T
 ```
 
-Two instances run in the dq frame when the LCL filter is engaged (one per axis, fed by `(v_d, i_d_meas)` and `(v_q, i_q_meas, ω_e·ψ_m)`); the estimated capacitor current `ic_hat = i1_hat − im_hat` is logged for future active-damping feedback `v_damp = −K_d · ic_hat`. Surfaced in the UI as the **Observer** plot tab (gated on `filter_enabled`).
+Two instances run in the dq frame when the LCL filter is engaged (one per axis, fed by `(v_d, i_d_meas)` and `(v_q, i_q_meas, ω_e·λ_PM)`); the estimated capacitor current `ic_hat = i1_hat − im_hat` is **injected by `FOCController` as `v_damp = −K_d · ic_hat`** (per axis) before vector saturation, with `K_d` from the analytic damping-ratio formula above. The observer runs *before* the FOC tick inside `Simulator.run` (zero-cycle delay) so `ic_hat` is in-phase with the resonance — a 1-cycle delay would amplify rather than damp the resonance at typical `f_pwm` / `f_res` ratios. Surfaced in the UI as the **Observer** plot tab (gated on `filter_enabled`).
+
+**Observer gain `L`** is pole-placed via Ackermann's formula on the dual `(A^T, C^T)`, with all three poles coincident-real at `−α·ω_res` (`α = SimParams.observer_pole_multiplier`, default 3). `compute_observer_gain(A, C, pole)` in `src/observer.py` does the algebra; the simulator calls it once per run and passes the resulting `L` into both d- and q-axis observers.
+
+**LCL filter design** (`FilterConfig.derive_components(L_s, f_c)`):
+
+```
+L_f = L_s                        (matched-inductance, f_res ≈ √2·f_c)
+C_f = 1 / ((2π·f_c)² · L_f)
+R_d = √(L_f/C_f) / 3             (passive damping; baseline for K_d)
+```
 
 **Centered sinusoidal PWM**
 
@@ -263,7 +296,7 @@ inside  dead time:   v_k = −sign(i_k) · Vdc/2       (freewheel diode)
 **Electromagnetic torque** (with optional 6th-electrical-harmonic ripple)
 
 ```
-T_e_dq = 1.5 · p · ψ_m · i_q
+T_e_dq = 1.5 · p · λ_PM · i_q
 T_e    = T_e_dq · (1 + ripple_pct · sin(6·θ_e + φ_ripple))
 ```
 
@@ -277,7 +310,7 @@ dθ_m/dt = ω_m
 **Torque → current ref** (surface-PM ⇒ i_d_ref = 0)
 
 ```
-i_q_ref = T_e_ref / (1.5 · p · ψ_m)
+i_q_ref = T_e_ref / (1.5 · p · λ_PM)
 ```
 
 ## Motor serial decoding (catalog REV1.8 p.28)
@@ -319,15 +352,15 @@ R_s  [Ohm]   ── from R_LL   ──────┤
 L_s  [H]     ── from L_LL_uH ─────┤
                                   └─ Delta (D):  L_phase = 1.5 · L_LL · 1e-6
 
-ψ_m  [Wb]    = K_T / (1.5 · p · √2)        amp-inv Clarke ⇒ i_q_peak = √2·I_q_rms
+λ_PM  [Wb]    = K_T / (1.5 · p · √2)        amp-inv Clarke ⇒ i_q_peak = √2·I_q_rms
 J    [kg·m²] = J_gcm² · 1e-7
 p            = common.pole_pairs
-Vdc  [V]     = motor.rated_voltage (default; UI-overridable)
+Vdc  [V]     = 1.5 · motor.rated_voltage (default; SimParams.vdc to override)
 ```
 
 Worked example — **STM-75-20-L-4Y** (Star, 4 series turns, Lite):
 `R_LL=0.457 Ω, L_LL=15.4 µH, K_T=0.109 Nm/Arms, p=18, J_gcm²=620` →
-`R_s=0.2285 Ω, L_s=7.7 µH, ψ_m=2.85 mWb, J=6.2e-5 kg·m²`.
+`R_s=0.2285 Ω, L_s=7.7 µH, λ_PM=2.85 mWb, J=6.2e-5 kg·m²`.
 
 **Note — Delta windings.** Phase impedance is the physical winding value
 (`1.5·R_LL`, `1.5·L_LL`), not a Y-equivalent transform. This is the literal
@@ -425,9 +458,12 @@ traceability; there is no cache-hit path.
 | Switching | `s_a`, `s_b`, `s_c` | int8 |
 | Post-inverter | `v_a`, `v_b`, `v_c` | float |
 | LCL observer (NaN when filter disabled) | `i1_d_hat`, `vc_d_hat`, `im_d_hat`, `ic_d_hat`, `i1_q_hat`, `vc_q_hat`, `im_q_hat`, `ic_q_hat` | float |
+| Active-damping voltage | `ad_d`, `ad_q` (= `−K_d · ic_*_hat`; zero when no LCL) | float |
 | Saturation flags | `sat_d`, `sat_q` | bool |
 
-Metadata (`slimtorq.*` keys): `schema_version`, `params_hash`, `params_json`, `foc_kp`, `foc_ki`, `pi_mode`, `pi_tc`, `pi_k1`, `vdc`, `f_pwm`, `t_dead`, `ts_enc`, `inverter_mode`, `pwm_mode`, `filter_enabled`, `filter_fc`, `filter_lf`, `filter_cf`, `filter_rd`, `b_est`, `motor_family`, `motor_name`, `motor_rated_voltage`.
+Metadata (`slimtorq.*` keys): `schema_version`, `params_hash`, `params_json`, `foc_kp`, `foc_ki`, `pi_mode`, `pi_tc`, `pi_k1`, `vdc`, `f_pwm`, `t_dead`, `ts_enc`, `inverter_mode`, `pwm_mode`, `filter_enabled`, `filter_fc`, `filter_lf`, `filter_cf`, `filter_rd`, `b_est`, `motor_family`, `motor_name`, `motor_rated_voltage`, `r_s`, `l_s`, `pole_pairs`, `i_q_peak`, `te_peak_1s`.
+
+In addition, `SimMeta` (returned by `POST /api/simulate` and visible in the Header) carries **ripple statistics** computed over the steady-state tail (last 25% of the run): `iq_ripple`, `te_ripple`, `ia_ripple`, each a `{delta_pp, pct_rated, pct_cmd}` record. `ia_ripple` uses a windowed peak-to-peak (max pp inside any ~2-PWM-period sliding window) so the rotating fundamental doesn't dominate the metric. The full canonical `SimParams` JSON (including `vdc`, `zeta_target`, `observer_pole_multiplier`) is stashed verbatim under `slimtorq.params_json`.
 
 ## Repo layout
 
@@ -456,17 +492,18 @@ slimtorq-control/
 │   ├── server.py                      FastAPI app + uvicorn.Server (get_app / get_server / run)
 │   ├── model.py                       Pydantic schema + catalog loader
 │   ├── tuning.py                      plant-aware PI tuning (LR + LCL conservative + LCL with active damping)
-│   ├── observer.py                    single-axis Luenberger LCL state observer (used 2× for dq)
+│   ├── observer.py                    single-axis Luenberger LCL state observer (Ackermann pole placement; used 2× for dq)
 │   ├── transform.py                   Clarke / Park / inverses
-│   ├── controller.py                  PIController, FOCController
+│   ├── controller.py                  PIController, FOCController (Clarke→Park→PI→FF→AD→vec-sat→InvPark→InvClarke)
 │   ├── encoder.py                     FluxEncoder, EncoderMeasurement
 │   ├── switching.py                   PWMModulator (6 modes), Inverter (PWM + dead time), LCLFilter, PMSMAbcModel
-│   └── simulator.py                   Simulator orchestrator + run_simulation(SimParams) → df + SimMeta + parquet
+│   ├── drivetrain.py                  Drivetrain (assembled drive) + _auto_tune (Kp, Ki, Kd) + Vdc / pole-multiplier resolution
+│   └── simulator.py                   Simulator orchestrator + sampling_phase + run_simulation(SimParams) → df + SimMeta + parquet
 └── frontend/
     ├── package.json                   next, react, react-hook-form, echarts, apache-arrow, katex
     ├── app/                           layout + single-page UI
     ├── components/
-    │   ├── ConfigPanel/               28 react-hook-form inputs (motor / inverter / filter / encoder / trajectory / timing / PI / debug)
+    │   ├── ConfigPanel/               32 react-hook-form inputs (motor / inverter / filter / encoder / trajectory / timing / PI / debug)
     │   ├── PlotPanel/                 12 ECharts figure modules under figures/*.ts
     │   └── Header.tsx                 logo + status pill (artifact name, hash, err %, Kp/Ki)
     ├── lib/                           api.ts (Arrow IPC fetch) · arrow.ts (column accessors) · fft.ts · tuning.ts · palette.ts

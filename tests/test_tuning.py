@@ -167,3 +167,4 @@ def test_lcl_requires_lcl_params() -> None:
         modulus_optimum_tuning(F_PWM, plant_type="lcl_conservative")
     with pytest.raises(ValueError, match="requires lcl_params"):
         skogestad_tuning(F_PWM, plant_type="lcl_with_active_damping")
+

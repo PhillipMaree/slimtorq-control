@@ -12,7 +12,7 @@ export const HELP: Record<string, HelpContent> = {
     title: 'Motor variant',
     body: (
       <>
-        <p>Pick one of the catalog SKUs (e.g. <code>STM-130-27-M-4D</code>). Each variant resolves to a flat <code>PmsmModel</code> — phase resistance <Eq tex="R_s" />, synchronous inductance <Eq tex="L_s" />, PM flux <Eq tex="\\psi_m" />, pole pairs <Eq tex="p" />, inertia <Eq tex="J" /> — derived from the catalog (REV1.8 page 35) by <code>CatalogMotor.to_pmsm_model()</code>.</p>
+        <p>Pick one of the catalog SKUs (e.g. <code>STM-130-27-M-4D</code>). Each variant resolves to a flat <code>PmsmModel</code> — phase resistance <Eq tex="R_s" />, synchronous inductance <Eq tex="L_s" />, PM flux <Eq tex="\\lambda_{PM}" />, pole pairs <Eq tex="p" />, inertia <Eq tex="J" /> — derived from the catalog (REV1.8 page 35) by <code>CatalogMotor.to_pmsm_model()</code>.</p>
         <p>The selected variant drives all downstream defaults: DC-link voltage (<code>rated_voltage</code>), peak load-torque step (<code>te_peak_1s</code>), and the safe LCL <Eq tex="T_c" /> bound below.</p>
       </>
     ),
@@ -73,7 +73,7 @@ export const HELP: Record<string, HelpContent> = {
   // ---------- Fields ----------
   'field:variant_name': {
     title: 'Motor variant SKU',
-    body: <p>Catalog key, e.g. <code>STM-130-27-M-4D</code>: stator OD (mm), axial length (mm), variant (L/M), series turns + winding connection (Y/D). Drives <Eq tex="R_s, L_s, \\psi_m, p, J" /> and the rated voltage / continuous current.</p>,
+    body: <p>Catalog key, e.g. <code>STM-130-27-M-4D</code>: stator OD (mm), axial length (mm), variant (L/M), series turns + winding connection (Y/D). Drives <Eq tex="R_s, L_s, \\lambda_{PM}, p, J" /> and the rated voltage / continuous current.</p>,
   },
   'field:f_pwm': {
     title: 'PWM carrier frequency',
@@ -199,7 +199,7 @@ export const HELP: Record<string, HelpContent> = {
   },
   'field:t_step_frac': {
     title: 'Load step fraction',
-    body: <p>Step amplitude as a fraction of the catalog 1-second peak torque. 1.0 = rated peak; values above 1 will saturate the voltage vector.</p>,
+    body: <p>Step amplitude as a fraction of the catalog 1-second peak torque. Blank = per-motor auto: the largest 0.1-step value whose steady-state R<sub>s</sub>·i<sub>q</sub> stays inside V<sub>max</sub> = V<sub>dc</sub>/2. Set explicitly to test saturation behaviour.</p>,
   },
   'field:Tf': {
     title: 'Simulation horizon cap',
@@ -208,5 +208,76 @@ export const HELP: Record<string, HelpContent> = {
   'field:dt_sim': {
     title: 'Inner-loop step',
     body: <p>FMU integration step + PWM-compare resolution + dead-time tracker tick. Blank uses <Eq tex="T_{pwm}/20" /> (standard).</p>,
+  },
+  'field:vdc': {
+    title: 'DC bus voltage',
+    body: (
+      <>
+        <p>The DC supply that feeds the inverter. The PWM switches chop it into &plusmn;V<sub>dc</sub>/2 pulses on each phase terminal; the PI controller&apos;s commanded voltage is bounded by V<sub>max</sub> = V<sub>dc</sub>/2.</p>
+        <p>The catalog <code>rated_voltage</code> is the motor&apos;s back-EMF at top speed, not the bus a real drive supplies. The default here is <strong>1.5 &times; rated_voltage</strong>, the industrial-servo rule of thumb that leaves the PI headroom for the steady-state R&middot;i<sub>q</sub> drop and the transient L&middot;di<sub>q</sub>/dt inside the linear PWM range.</p>
+        <p>Raising V<sub>dc</sub> increases voltage headroom but also raises PWM current ripple linearly (&Delta;I<sub>pp</sub> &prop; V<sub>dc</sub>). Lower it to demonstrate undersized-bus saturation.</p>
+      </>
+    ),
+  },
+  'ripple-stats': {
+    title: 'What is a good current or torque ripple?',
+    body: (
+      <>
+        <p>Current ripple is the high-frequency variation in motor current caused by PWM switching. Since motor torque is approximately proportional to current, current ripple also produces torque ripple.</p>
+
+        <p className="mt-2 font-semibold">Torque ripple — acceptable levels</p>
+        <p>Usually expressed as peak-to-peak ripple relative to rated (or commanded) torque.</p>
+        <table className="text-xs mt-1 border border-alva-border">
+          <thead className="bg-alva-panel">
+            <tr><th className="px-2 py-1 text-left">Application</th><th className="px-2 py-1 text-left">Good</th><th className="px-2 py-1 text-left">Acceptable</th><th className="px-2 py-1 text-left">Comment</th></tr>
+          </thead>
+          <tbody>
+            <tr><td className="px-2 py-1">Precision gimbal / metrology</td><td className="px-2 py-1">&lt; 1%</td><td className="px-2 py-1">1–2%</td><td className="px-2 py-1">Very ripple-sensitive</td></tr>
+            <tr><td className="px-2 py-1">Robotics / direct-drive servo</td><td className="px-2 py-1">&lt; 2–3%</td><td className="px-2 py-1">3–5%</td><td className="px-2 py-1">Depends on gearbox/compliance</td></tr>
+            <tr><td className="px-2 py-1">General servo drive</td><td className="px-2 py-1">&lt; 5%</td><td className="px-2 py-1">5–10%</td><td className="px-2 py-1">Often controllable</td></tr>
+            <tr><td className="px-2 py-1">Pumps / fans / low-cost BLDC</td><td className="px-2 py-1">&lt; 10%</td><td className="px-2 py-1">10–20%</td><td className="px-2 py-1">Load inertia filters ripple</td></tr>
+            <tr><td className="px-2 py-1">Traction / propulsion</td><td className="px-2 py-1">&lt; 5–10%</td><td className="px-2 py-1">10%+ sometimes</td><td className="px-2 py-1">NVH dominates above this</td></tr>
+          </tbody>
+        </table>
+        <p className="mt-1">The catalog reports the SlimTorq STM-105-17 motor&apos;s inherent spatial-harmonic torque ripple at ~0.5% (Lite) / 0.4% (Max) — precision-grade. The bigger source of in-system ripple is usually PWM control, not motor geometry.</p>
+
+        <p className="mt-2 font-semibold">Current ripple — acceptable levels</p>
+        <p>Usually expressed as peak-to-peak ripple relative to rated (or commanded) current. The percentage-of-command form gets misleading near zero command; the rated-relative form is the stable measure.</p>
+        <table className="text-xs mt-1 border border-alva-border">
+          <thead className="bg-alva-panel">
+            <tr><th className="px-2 py-1 text-left">Ripple % of rated</th><th className="px-2 py-1 text-left">Severity</th><th className="px-2 py-1 text-left">Comment</th></tr>
+          </thead>
+          <tbody>
+            <tr><td className="px-2 py-1">2–5%</td><td className="px-2 py-1">Precision servo / quiet motion</td><td className="px-2 py-1">Nice target</td></tr>
+            <tr><td className="px-2 py-1">5–10%</td><td className="px-2 py-1">Good industrial servo</td><td className="px-2 py-1">Common design target</td></tr>
+            <tr><td className="px-2 py-1">10–20%</td><td className="px-2 py-1">General drive</td><td className="px-2 py-1">Often acceptable thermally</td></tr>
+            <tr><td className="px-2 py-1">20–30%</td><td className="px-2 py-1">Cost-sensitive BLDC</td><td className="px-2 py-1">Hotter, noisier</td></tr>
+            <tr><td className="px-2 py-1">&gt; 30%</td><td className="px-2 py-1">Usually poor</td><td className="px-2 py-1">Check heating, NVH, control</td></tr>
+          </tbody>
+        </table>
+
+        <p className="mt-2 text-alva-muted">These are practical guidelines, not pass/fail rules. Acceptable ripple depends on application, inertia, acoustics, thermal margin, sensor quality, and required smoothness.</p>
+
+        <p className="mt-3 font-semibold">Reading the percentages on the header</p>
+        <p>The header reports peak-to-peak ripple as a percentage of the catalog <strong>continuous</strong> rating (i<sub>cont</sub> for current, T<sub>e,cont</sub> for torque). When the motor operates in the <strong>peak regime</strong> (above continuous, below the 1-second peak — typical for short-duration steps), the percentages naturally exceed 100% even with good tracking. Cross-reference the absolute Δ value and the per-command ripple percent (when shown) to judge the controller view.</p>
+
+        <p className="mt-2 font-semibold">i<sub>a</sub> ripple is windowed</p>
+        <p>Δi<sub>a,pp</sub> is now computed as the maximum peak-to-peak inside any sliding window ≈ 2 PWM periods. That window is too short for the rotating fundamental (at the electrical frequency ω<sub>e</sub>) to swing meaningfully across it, so the metric isolates PWM-band ripple from the fundamental sinusoid. Without this, &ldquo;i<sub>a</sub> ripple&rdquo; would mostly reflect the operating-point amplitude, not actual ripple.</p>
+      </>
+    ),
+  },
+  'field:observer_pole_multiplier': {
+    title: 'LCL observer pole multiplier (α_obs)',
+    body: (
+      <>
+        <p>Places the Luenberger observer&apos;s three eigenvalues coincident-real at <strong>−α<sub>obs</sub> · ω<sub>res</sub></strong> via Ackermann&apos;s formula. ω<sub>res</sub> is the LCL resonance frequency in rad/s.</p>
+        <p>The classic speed-vs-noise tradeoff:</p>
+        <ul className="list-disc ml-4 space-y-1">
+          <li><strong>Larger α</strong> (5–10): the estimation error decays faster, so the active damping reacts more quickly to resonance excitation. But the observer amplifies measurement noise (encoder quantisation, current-sensor noise) at higher gain.</li>
+          <li><strong>Smaller α</strong> (1–2): smoother estimates, less noise amplification, but slower response — the observer trails the actual state, which limits the effectiveness of active damping.</li>
+        </ul>
+        <p>The default <strong>α = 3</strong> is the textbook middle ground for an LCL filter: observer poles ~3× faster than the closed-loop bandwidth (which itself sits below ω<sub>res</sub>). Only consulted when the LCL filter is enabled.</p>
+      </>
+    ),
   },
 };

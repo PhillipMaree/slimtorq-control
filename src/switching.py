@@ -304,7 +304,9 @@ class PMSMAbcModel:
         real_params = {
             "R_s": m.R_s,
             "L_s": m.L_s,
-            "psi_m": m.psi_m,
+            # FMU parameter name "psi_m" is fixed at the Modelica level
+            # (see modelica/Alva.mo); the Python identifier is lambda_PM.
+            "psi_m": m.lambda_PM,
             "J": m.J,
             "B": 1.0e-5,
             "torque_ripple_pct": m.torque_ripple_pct / 100.0,

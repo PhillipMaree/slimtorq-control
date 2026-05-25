@@ -21,7 +21,7 @@ export const FORM_DEFAULTS: SimParams = {
   dt_sim: null,
   t_end: 0.05,
   t_step: 0.005,
-  t_step_frac: 2.0 / 3.0,
+  t_step_frac: null,
   Tf: null,
   pi_mode: 'modulus_optimum',
   Kp: null,
@@ -32,4 +32,7 @@ export const FORM_DEFAULTS: SimParams = {
   pwm_mode: 'sine',
   filter_enabled: false,
   filter_fc: 5000.0,
+  vdc: null,
+  zeta_target: 0.7,
+  observer_pole_multiplier: 3.0,
 };

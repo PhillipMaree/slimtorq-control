@@ -2,9 +2,9 @@
 
 Two layers in one module:
 
-1. :class:`Simulator` — the multi-rate orchestrator that wires the four
-   physical components (motor, encoder, controller, inverter) together
-   and steps them with three clocks:
+1. :class:`Simulator` — the multi-rate orchestrator. Given a fully-built
+   :class:`Drivetrain` (see :mod:`src.drivetrain`) it routes signals
+   through three clocks:
 
    - T_s     inner simulation step (FMU doStep, PWM carrier comparison,
              inverter dead-time tracking). Default = T_pwm / 20.
@@ -14,10 +14,10 @@ Two layers in one module:
              EncoderMeasurement; independent of the above two).
 
    Between FOC ticks the FOC's last v_abc_ref output is held by ZOH and
-   fed into the Inverter every T_s. Use as a context manager so the FMU is
-   always released::
+   fed into the Inverter every T_s. The Drivetrain owns the FMU lifecycle::
 
-       with Simulator(motor, encoder, controller, inverter) as sim:
+       with Drivetrain.build(p, motor) as drive:
+           sim = Simulator(drive)
            df = sim.run(TL_ref, T_s, T_f)
 
 2. :func:`run_simulation` — headless pipeline that turns a
@@ -41,7 +41,6 @@ import hashlib
 import json
 import math
 from pathlib import Path
-from types import TracebackType
 from typing import Literal
 
 import numpy as np
@@ -50,23 +49,20 @@ import pyarrow.parquet as pq
 
 from src import get_config
 from src.controller import FOCController
-from src.encoder import EncoderMeasurement, FluxEncoder
+from src.drivetrain import Drivetrain, _auto_tune, resolve_vdc
 from src.model import (
-    EncoderConfig,
     FilterConfig,
-    FocConfig,
-    InverterConfig,
     LCLParams,
     PiMode,
     PmsmModel,
+    RippleStats,
     SimMeta,
     SimParams,
     TLRef,
     load_catalog,
 )
-from src.observer import LCLObserver
-from src.switching import Inverter, LCLFilter, PMSMAbcModel
-from src.tuning import PlantType, modulus_optimum_tuning, skogestad_tuning
+from src.observer import LCLObserver, compute_observer_gain
+from src.transform import abc_to_dq
 
 SCHEMA_VERSION = "8"
 TWO_PI = 2.0 * math.pi
@@ -114,6 +110,8 @@ LOG_COLUMNS = (
     "vc_q_hat",
     "im_q_hat",
     "ic_q_hat",
+    "ad_d",
+    "ad_q",
 )
 # Columns initialised to NaN instead of zero — observer estimates are only
 # meaningful when the LCL filter runs in switching mode, otherwise the LCL
@@ -146,41 +144,21 @@ def _tl_value_at(TL: TLRef, t: float) -> float:
 
 
 class Simulator:
-    """Orchestrator for the four-component pipeline.
+    """Multi-rate orchestrator over a fully-assembled :class:`Drivetrain`.
 
-    Arguments are fully-built component wrappers; the Simulator only owns the
-    multi-rate clock logic and the per-step signal routing. Lifecycle (in
-    particular the FMU) is released on __exit__.
+    The Simulator owns only the clock logic and per-step signal routing.
+    Resource ownership (in particular the FMU) lives on the Drivetrain,
+    which is the context manager around a run.
     """
 
-    def __init__(self, motor: PMSMAbcModel, encoder: EncoderMeasurement, controller: FOCController, inverter: Inverter, filter: LCLFilter | None = None) -> None:
-        self.motor = motor
-        self.encoder = encoder
-        self.controller = controller
-        self.inverter = inverter
-        # Optional LCL low-pass between inverter terminals and motor.
-        # Engaged only in switching mode; ideal/average bypass the filter
-        # because their voltage is already smooth.
-        self.filter = filter
-
-        self.Vdc = inverter.Vdc
-        self.p = motor.p
-        # T_e = 1.5·p·ψ_m·i_q  =>  i_q_ref = T_e_ref / kt_dq.
-        self.kt_dq = 1.5 * motor.p * motor.motor.psi_m
-        # One FOC tick per PWM cycle — standard digital-FOC convention.
-        self.dt_ctrl = 1.0 / controller.f_pwm
-
-    def __enter__(self) -> Simulator:
-        return self
-
-    def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: TracebackType | None) -> None:
-        # Why: release the FMU even if run() raised. fmpy's terminate/free
-        # raise if called twice, so swallow on the way out — a second close
-        # here would mask the original exception.
-        try:
-            self.motor.close()
-        except Exception:
-            pass
+    def __init__(self, drive: Drivetrain) -> None:
+        self.drive = drive
+        # Cached for the inner loop. Keep them on the Simulator so the hot
+        # path doesn't reach back through the drive on every step.
+        self.Vdc = drive.Vdc
+        self.p = drive.motor.p
+        self.kt_dq = drive.kt_dq
+        self.dt_ctrl = drive.dt_ctrl
 
     def run(
         self,
@@ -192,6 +170,7 @@ class Simulator:
         i_d_ref_override: float | None = None,
         T_L_override: float | None = None,
         inverter_mode: Literal["ideal", "average", "switching"] = "switching",
+        sampling_phase: Literal["valley", "midpoint", "double"] = "valley",
     ) -> pl.DataFrame:
         """Run the closed-loop simulation and return a polars DataFrame of the log.
 
@@ -209,18 +188,34 @@ class Simulator:
                                             dead-time. Diagnostic.
                               "switching" : real PWM compare + dead-time
                                             (default).
+            sampling_phase    Where in the PWM cycle the FOC samples and ticks:
+                              "valley"   : single sample at every carrier
+                                           valley (t = T_pwm, 2·T_pwm, …).
+                                           Default.
+                              "midpoint" : single sample at every carrier
+                                           peak (t = T_pwm/2, 3·T_pwm/2, …).
+                                           Equivalent to valley for sine PWM
+                                           with a linear ramp.
+                              "double"   : two abc-frame samples per period
+                                           (one at the carrier peak, one at
+                                           the valley), averaged before the
+                                           FOC tick. Cancels the in-period
+                                           ramp exactly when it is linear,
+                                           and rejects dead-time-induced
+                                           edge asymmetry — the textbook
+                                           production technique.
         """
-        T_pwm = 1.0 / self.controller.f_pwm
+        T_pwm = 1.0 / self.drive.controller.f_pwm
         if T_s is None:
             # 20x oversampling of the PWM carrier — the floor below enforces
             # the >10x minimum.
             T_s = T_pwm / 20.0
-        tau_e = self.motor.motor.L_s / self.motor.motor.R_s
+        tau_e = self.drive.motor.L_s / self.drive.motor.R_s
         if T_s > tau_e / 3.0:
             msg = f"T_s ({T_s * 1e6:.2f} us) too large for stable discrete PI; require T_s <= tau_e/3 = {tau_e / 3.0 * 1e6:.2f} us (tau_e = L_s/R_s = {tau_e * 1e6:.2f} us)."
             raise ValueError(msg)
         if T_s > T_pwm / 10.0:
-            msg = f"T_s ({T_s * 1e6:.2f} us) too large to resolve PWM at f_pwm={self.controller.f_pwm:g} Hz; require T_s <= T_pwm/10 = {T_pwm / 10.0 * 1e6:.2f} us."
+            msg = f"T_s ({T_s * 1e6:.2f} us) too large to resolve PWM at f_pwm={self.drive.controller.f_pwm:g} Hz; require T_s <= T_pwm/10 = {T_pwm / 10.0 * 1e6:.2f} us."
             raise ValueError(msg)
 
         T_horizon = float(T_f) if T_f is not None else float(TL_ref.t[-1])
@@ -233,34 +228,118 @@ class Simulator:
         v_a_ref = 0.0
         v_b_ref = 0.0
         v_c_ref = 0.0
-        ctrl_phase = 0.0
-
+        # Initial ctrl_phase places the first FOC tick at either the carrier
+        # valley (t = dt_ctrl) or the carrier peak (t = dt_ctrl / 2). Double
+        # sampling fires the FOC at the valley but takes an intermediate
+        # snapshot at the peak — same phase initialisation as valley mode.
+        ctrl_phase = 0.5 * self.dt_ctrl if sampling_phase == "midpoint" else 0.0
+        # Double-sampling: the midpoint-snapshot bookkeeping. The snapshot is
+        # taken once per period (between FOC ticks), then averaged with the
+        # valley sample at the next FOC tick.
+        half_dt_ctrl = 0.5 * self.dt_ctrl
+        mid_snap = (0.0, 0.0, 0.0)
+        mid_snap_due = sampling_phase == "double"
         # LCL state observers (d, q axes). Constructed lazily only when the
         # filter is engaged in switching mode — otherwise the LCL states are
         # not part of the plant and the estimates are left as NaN.
-        observers_active = self.filter is not None and inverter_mode == "switching"
+        lcl_filter = self.drive.lcl_filter
+        observers_active = lcl_filter is not None and inverter_mode == "switching"
         obs_d: LCLObserver | None = None
         obs_q: LCLObserver | None = None
         if observers_active:
-            params = LCLParams.from_runtime(L_f=self.filter.L_f, C_f=self.filter.C_f, motor=self.motor.motor, Ts=T_s)
-            obs_d = LCLObserver(params, measurement_type="motor_current")
-            obs_q = LCLObserver(params, measurement_type="motor_current")
+            assert lcl_filter is not None
+            params = LCLParams.from_runtime(L_f=lcl_filter.L_f, C_f=lcl_filter.C_f, motor=self.drive.motor, Ts=T_s)
+            # Place observer poles at α · ω_res via Ackermann; α from
+            # SimParams.observer_pole_multiplier (default 3). Both d and q
+            # axes share the same plant matrices (LCL is axis-symmetric)
+            # so the gain is computed once and reused.
+            A_obs = np.array(
+                [
+                    [-params.R1 / params.L1, -1.0 / params.L1, 0.0],
+                    [1.0 / params.Cf, 0.0, -1.0 / params.Cf],
+                    [0.0, 1.0 / params.Lload, -params.Rload / params.Lload],
+                ]
+            )
+            C_obs = np.array([0.0, 0.0, 1.0])  # motor_current measurement
+            pole = self.drive.observer_pole_multiplier * params.resonance_frequency_rad_s()
+            L_obs = compute_observer_gain(A_obs, C_obs, pole=pole)
+            obs_d = LCLObserver(params, measurement_type="motor_current", observer_gain=L_obs)
+            obs_q = LCLObserver(params, measurement_type="motor_current", observer_gain=L_obs)
+
+        # Local aliases for the hot inner loop.
+        motor_fmu = self.drive.motor_fmu
+        encoder = self.drive.encoder
+        controller = self.drive.controller
+        inverter = self.drive.inverter
 
         for k in range(n_steps):
             t = k * T_s
 
             # (a) PMSM measurements + encoder.
-            i_a, i_b, i_c, theta_m_true, omega_m_true, T_e = self.motor.measure()
-            (theta_m_meas, omega_m_meas, theta_e_meas, i_a_meas, i_b_meas, i_c_meas) = self.encoder.step(theta_m_true, omega_m_true, (i_a, i_b, i_c), t)
+            i_a, i_b, i_c, theta_m_true, omega_m_true, T_e = motor_fmu.measure()
+            (theta_m_meas, omega_m_meas, theta_e_meas, i_a_meas, i_b_meas, i_c_meas) = encoder.step(theta_m_true, omega_m_true, (i_a, i_b, i_c), t)
             omega_e_meas = self.p * omega_m_meas
+
+            # (a2) LCL state observers — advance one T_s using the inverter
+            # voltage that has been driving the plant since the last update
+            # (controller.v_d from the prior FOC tick, ZOH-held) and the
+            # current dq-frame measurement. Done BEFORE the FOC tick so the
+            # active-damping signal ic_hat is in-phase with the resonance
+            # rather than one-cycle delayed.
+            if obs_d is not None and obs_q is not None:
+                i_d_now, i_q_now = abc_to_dq(i_a_meas, i_b_meas, i_c_meas, theta_e_meas)
+                e_q = omega_e_meas * self.drive.motor.lambda_PM
+                d_est = obs_d.predict_update(v_inv=controller.v_d, y_meas=i_d_now, e=0.0)
+                q_est = obs_q.predict_update(v_inv=controller.v_q, y_meas=i_q_now, e=e_q)
+                ic_d_hat = d_est["ic_hat"]
+                ic_q_hat = q_est["ic_hat"]
+                log["i1_d_hat"][k] = d_est["i1_hat"]
+                log["vc_d_hat"][k] = d_est["vc_hat"]
+                log["im_d_hat"][k] = d_est["im_hat"]
+                log["ic_d_hat"][k] = ic_d_hat
+                log["i1_q_hat"][k] = q_est["i1_hat"]
+                log["vc_q_hat"][k] = q_est["vc_hat"]
+                log["im_q_hat"][k] = q_est["im_hat"]
+                log["ic_q_hat"][k] = ic_q_hat
+            else:
+                ic_d_hat = 0.0
+                ic_q_hat = 0.0
 
             # (b) FOC tick once per dt_ctrl.
             T_e_ref = _tl_value_at(TL_ref, t)
             i_q_ref = i_q_ref_override if i_q_ref_override is not None else T_e_ref / self.kt_dq
             i_d_ref = i_d_ref_override if i_d_ref_override is not None else 0.0
+            # Double sampling: take an intermediate snapshot at the carrier
+            # peak (mid-period). One per period; cleared at each FOC tick.
+            if sampling_phase == "double" and mid_snap_due and ctrl_phase >= half_dt_ctrl - 1e-15:
+                mid_snap = (i_a_meas, i_b_meas, i_c_meas)
+                mid_snap_due = False
             if ctrl_phase >= self.dt_ctrl - 1e-15:
                 ctrl_phase -= self.dt_ctrl
-                v_a_ref, v_b_ref, v_c_ref = self.controller.step(i_a_meas, i_b_meas, i_c_meas, theta_e_meas, omega_e_meas, i_d_ref=i_d_ref, i_q_ref=i_q_ref, dt=self.dt_ctrl)
+                if sampling_phase == "double":
+                    # Average the peak and valley snapshots in abc-frame
+                    # before handing to the FOC. Park-transform uses
+                    # theta_e_meas at the valley instant; the ~T_pwm/2 phase
+                    # delay against the peak snapshot is a known and small
+                    # error term in production drives.
+                    i_a_in = 0.5 * (mid_snap[0] + i_a_meas)
+                    i_b_in = 0.5 * (mid_snap[1] + i_b_meas)
+                    i_c_in = 0.5 * (mid_snap[2] + i_c_meas)
+                    mid_snap_due = True
+                else:
+                    i_a_in, i_b_in, i_c_in = i_a_meas, i_b_meas, i_c_meas
+                v_a_ref, v_b_ref, v_c_ref = controller.step(
+                    i_a_in,
+                    i_b_in,
+                    i_c_in,
+                    theta_e_meas,
+                    omega_e_meas,
+                    i_d_ref=i_d_ref,
+                    i_q_ref=i_q_ref,
+                    dt=self.dt_ctrl,
+                    ic_d_hat=ic_d_hat,
+                    ic_q_hat=ic_q_hat,
+                )
             ctrl_phase += T_s
 
             # (c) Power stage: ideal voltage source / cycle-averaged PWM / real switching.
@@ -275,50 +354,35 @@ class Simulator:
                 # Same duty calculation as switching mode (clip + 0.5 + v/Vdc),
                 # but feed the FMU the cycle-average voltage (d-0.5)*Vdc. No
                 # dead-time. Isolates duty / scaling bugs from switching ripple.
-                d_a, d_b, d_c, _, _, _ = self.inverter._pwm.step(v_a_ref, v_b_ref, v_c_ref, self.Vdc, t, T_s)
+                d_a, d_b, d_c, _, _, _ = inverter._pwm.step(v_a_ref, v_b_ref, v_c_ref, self.Vdc, t, T_s)
                 v_a = (d_a - 0.5) * self.Vdc
                 v_b = (d_b - 0.5) * self.Vdc
                 v_c = (d_c - 0.5) * self.Vdc
                 s_a = s_b = s_c = 0
             else:
-                d_a, d_b, d_c, s_a, s_b, s_c, v_a, v_b, v_c = self.inverter.step(v_a_ref, v_b_ref, v_c_ref, i_a, i_b, i_c, t, T_s)
+                d_a, d_b, d_c, s_a, s_b, s_c, v_a, v_b, v_c = inverter.step(v_a_ref, v_b_ref, v_c_ref, i_a, i_b, i_c, t, T_s)
 
             # (c2) Optional LCL output filter — only meaningful with real
             # switching; ideal/average already produce smooth voltages so we
             # pass through to keep the diagnostic intent of those modes intact.
-            if self.filter is not None and inverter_mode == "switching":
-                v_a_motor, v_b_motor, v_c_motor = self.filter.step((v_a, v_b, v_c), (i_a, i_b, i_c), T_s)
+            if lcl_filter is not None and inverter_mode == "switching":
+                v_a_motor, v_b_motor, v_c_motor = lcl_filter.step((v_a, v_b, v_c), (i_a, i_b, i_c), T_s)
             else:
                 v_a_motor, v_b_motor, v_c_motor = v_a, v_b, v_c
 
             # (d) PMSM advance — fed the filtered voltage when the filter is on.
             T_L = T_L_override if T_L_override is not None else T_e_ref
-            self.motor.step(v_a_motor, v_b_motor, v_c_motor, T_L, T_s)
-
-            # (c3) LCL state observer (d, q). Runs only when the filter is on
-            # in switching mode; otherwise the observer columns stay NaN.
-            if obs_d is not None and obs_q is not None:
-                e_q = omega_e_meas * self.motor.motor.psi_m
-                d_est = obs_d.predict_update(v_inv=self.controller.v_d, y_meas=self.controller.i_d_meas, e=0.0)
-                q_est = obs_q.predict_update(v_inv=self.controller.v_q, y_meas=self.controller.i_q_meas, e=e_q)
-                log["i1_d_hat"][k] = d_est["i1_hat"]
-                log["vc_d_hat"][k] = d_est["vc_hat"]
-                log["im_d_hat"][k] = d_est["im_hat"]
-                log["ic_d_hat"][k] = d_est["ic_hat"]
-                log["i1_q_hat"][k] = q_est["i1_hat"]
-                log["vc_q_hat"][k] = q_est["vc_hat"]
-                log["im_q_hat"][k] = q_est["im_hat"]
-                log["ic_q_hat"][k] = q_est["ic_hat"]
+            motor_fmu.step(v_a_motor, v_b_motor, v_c_motor, T_L, T_s)
 
             log["t"][k] = t
             log["TL_ref"][k] = T_L
             log["T_e"][k] = T_e
             log["i_d_ref"][k] = i_d_ref
             log["i_q_ref"][k] = i_q_ref
-            log["i_d_meas"][k] = self.controller.i_d_meas
-            log["i_q_meas"][k] = self.controller.i_q_meas
-            log["v_d_ref"][k] = self.controller.v_d
-            log["v_q_ref"][k] = self.controller.v_q
+            log["i_d_meas"][k] = controller.i_d_meas
+            log["i_q_meas"][k] = controller.i_q_meas
+            log["v_d_ref"][k] = controller.v_d
+            log["v_q_ref"][k] = controller.v_q
             log["i_a"][k] = i_a
             log["i_b"][k] = i_b
             log["i_c"][k] = i_c
@@ -343,10 +407,12 @@ class Simulator:
             log["v_a_motor"][k] = v_a_motor
             log["v_b_motor"][k] = v_b_motor
             log["v_c_motor"][k] = v_c_motor
-            log["m_index"][k] = self.inverter._pwm.last_m_index
-            log["pwm_mode_active"][k] = _PWM_MODE_CODE.get(self.inverter._pwm.last_active_mode, 0)
-            log["sat_d"][k] = self.controller.sat_d
-            log["sat_q"][k] = self.controller.sat_q
+            log["m_index"][k] = inverter._pwm.last_m_index
+            log["pwm_mode_active"][k] = _PWM_MODE_CODE.get(inverter._pwm.last_active_mode, 0)
+            log["sat_d"][k] = controller.sat_d
+            log["sat_q"][k] = controller.sat_q
+            log["ad_d"][k] = controller.ad_d
+            log["ad_q"][k] = controller.ad_q
 
         columns: dict[str, pl.Series] = {col: pl.Series(col, log[col]) for col in LOG_COLUMNS}
         for col in BOOL_COLUMNS:
@@ -407,6 +473,36 @@ def default_tl_ref(motor: PmsmModel, t_end: float, t_step: float, frac: float) -
     """Zero until t_step, then step to frac · te_peak_1s, hold to t_end."""
     amp = frac * motor.te_peak_1s
     return TLRef(ref=np.array([0.0, amp]), t=np.array([t_step, t_end]))
+
+
+# Headroom against the steady-state R·i_q bound — leaves room for the
+# transient overshoot during the current ramp and the back-EMF term
+# ω_e·λ_PM as the rotor accelerates over t_end.
+_SAFE_FRAC_MARGIN = 0.75
+
+
+def max_safe_step_frac(motor: PmsmModel) -> float:
+    """Largest TL_ref / Te_peak (rounded down to 0.1) that keeps the
+    closed-loop |v_dq| within the sinusoidal-PWM linear range V_max = Vdc/2.
+
+    Derived from the steady-state q-axis voltage bound at zero speed:
+
+        v_q ≈ R_s · i_q   with   i_q = frac · te_peak_1s / (1.5·p·λ_PM)
+
+    Solving ``v_q <= margin · V_max`` for frac and flooring to the nearest
+    0.1 yields a per-motor default that doesn't saturate out of the box.
+    High-resistance windings (e.g. 8-turn variants at 72 V) clamp at 0.1.
+    """
+    V_max = 0.5 * float(motor.rated_voltage)
+    kt_dq = 1.5 * motor.p * motor.lambda_PM
+    frac_max = _SAFE_FRAC_MARGIN * V_max * kt_dq / (motor.R_s * motor.te_peak_1s)
+    return max(0.1, min(1.0, math.floor(frac_max * 10.0) / 10.0))
+
+
+def resolve_t_step_frac(p: SimParams, motor: PmsmModel) -> float:
+    """Return ``p.t_step_frac`` if the user supplied one, otherwise the
+    per-motor safe default from :func:`max_safe_step_frac`."""
+    return float(p.t_step_frac) if p.t_step_frac is not None else max_safe_step_frac(motor)
 
 
 def write_parquet(
@@ -480,58 +576,6 @@ def write_parquet(
     pq.write_table(table, str(out_path))
 
 
-def _ts_for_tuning(f_pwm: float) -> float:
-    """Mirror of Simulator.run()'s default T_s = T_pwm / 20 so LCLParams used
-    for tuning has the same Ts the observer will see."""
-    return 1.0 / (float(f_pwm) * 20.0)
-
-
-def _plant_type_for(filter_enabled: bool) -> PlantType:
-    """LR for no filter, lcl_with_active_damping when the LCL is on (the
-    observer drives Kd · ic_hat, so the resonance is actively damped — margin 5
-    suffices instead of the conservative 10)."""
-    return "lcl_with_active_damping" if filter_enabled else "lr"
-
-
-# Headroom factor over the active-damping resonance margin (5). We pick Tc so
-# omega_c <= omega_res / (5 * SAFETY_HEADROOM); 1.25 leaves ~25% slack against
-# the guard.
-_LCL_TC_SAFETY_HEADROOM = 1.25
-
-
-def _safe_lcl_tc(motor: PmsmModel, f_pwm: float, filter_fc: float) -> float:
-    """Skogestad Tc that keeps closed-loop bandwidth safely below the LCL resonance.
-
-    Solves omega_c = 1/(Tc + tau_delay) <= omega_res / (5 * headroom) for Tc,
-    where tau_delay = 1.5/f_pwm is the controller-+-PWM dead-time used by
-    Skogestad. Floored at tau_delay so Tc is at least one dead-time.
-    """
-    lcl = LCLParams.from_filter_config(FilterConfig(enabled=True, f_c_target=filter_fc), motor, _ts_for_tuning(f_pwm))
-    omega_res = lcl.resonance_frequency_rad_s()
-    tau_delay = 1.5 / float(f_pwm)
-    tc_min = (5.0 * _LCL_TC_SAFETY_HEADROOM) / omega_res - tau_delay
-    return max(tc_min, tau_delay)
-
-
-def _auto_tune(motor: PmsmModel, pi_mode: PiMode, f_pwm: float, pi_tc: float | None, pi_k1: float, filter_enabled: bool, filter_fc: float) -> tuple[float, float]:
-    """Resolve (Kp, Ki) for any non-manual mode. When the LCL is on we
-    transparently substitute Skogestad with a safe Tc against the
-    active-damping plant — Modulus Optimum is unsafe at typical filter_fc
-    values because its implied bandwidth sits ~0.5·omega_res."""
-    plant = _plant_type_for(filter_enabled)
-    lcl = LCLParams.from_filter_config(FilterConfig(enabled=True, f_c_target=filter_fc), motor, _ts_for_tuning(f_pwm)) if plant != "lr" else None
-    if filter_enabled:
-        tc_safe = _safe_lcl_tc(motor, f_pwm, filter_fc)
-        tc_used = tc_safe if pi_tc is None else max(float(pi_tc), tc_safe)
-        r = skogestad_tuning(float(f_pwm), Rs=motor.R_s, Ls=motor.L_s, plant_type=plant, lcl_params=lcl, k1=float(pi_k1), Tc=tc_used)
-        return r.Kp, r.Ki
-    if pi_mode == "skogestad":
-        r = skogestad_tuning(float(f_pwm), Rs=motor.R_s, Ls=motor.L_s, plant_type="lr", lcl_params=None, k1=float(pi_k1), Tc=pi_tc)
-        return r.Kp, r.Ki
-    r = modulus_optimum_tuning(float(f_pwm), Rs=motor.R_s, Ls=motor.L_s, plant_type="lr", lcl_params=None)
-    return r.Kp, r.Ki
-
-
 def gains_for_mode(
     variant: str,
     pi_mode: PiMode,
@@ -542,20 +586,22 @@ def gains_for_mode(
     filter_enabled: bool = False,
     filter_fc: float = 5000.0,
 ) -> tuple[float, float] | None:
-    """Auto-suggested (Kp, Ki) for variant + mode. None for manual."""
+    """Auto-suggested (Kp, Ki) for variant + mode. ``None`` for manual.
+
+    Wraps :func:`src.drivetrain._auto_tune` with catalog lookup so callers
+    only need a variant name. The tuning algorithm itself lives with the
+    drivetrain because picking gains is the last step of drive assembly.
+    """
     if pi_mode == "manual":
         return None
-    return _auto_tune(CATALOG[variant], pi_mode, float(f_pwm), pi_tc, float(pi_k1), filter_enabled, float(filter_fc))
+    kp, ki, _kd = _auto_tune(CATALOG[variant], pi_mode, float(f_pwm), pi_tc, float(pi_k1), filter_enabled, float(filter_fc))
+    return kp, ki
 
 
-def _resolve_gains(p: SimParams, motor: PmsmModel) -> tuple[float, float]:
-    if p.pi_mode == "manual" and p.Kp is not None and p.Ki is not None:
-        return float(p.Kp), float(p.Ki)
-    return _auto_tune(motor, p.pi_mode, p.f_pwm, p.pi_tc, p.pi_k1, p.filter_enabled, p.filter_fc)
-
-
-def _params_dict_for_hash(p: SimParams) -> dict:
-    """The dict the old Dash callback hashed at app.py:648-678."""
+def _params_dict_for_hash(p: SimParams, t_step_frac: float, vdc: float) -> dict:
+    """The dict the old Dash callback hashed at app.py:648-678. ``t_step_frac``
+    and ``vdc`` are passed in resolved so the hash reflects the actual sim
+    (per-motor auto default vs explicit user value)."""
     return {
         "variant_name": p.variant_name,
         "f_pwm": float(p.f_pwm),
@@ -575,7 +621,7 @@ def _params_dict_for_hash(p: SimParams) -> dict:
         "dt_sim": None if p.dt_sim is None else float(p.dt_sim),
         "t_end": float(p.t_end),
         "t_step": float(p.t_step),
-        "t_step_frac": float(p.t_step_frac),
+        "t_step_frac": float(t_step_frac),
         "Tf": None if p.Tf is None else float(p.Tf),
         "pi_mode": p.pi_mode,
         "Kp": float(p.Kp) if p.Kp is not None else None,
@@ -586,6 +632,9 @@ def _params_dict_for_hash(p: SimParams) -> dict:
         "pwm_mode": p.pwm_mode,
         "filter_enabled": bool(p.filter_enabled),
         "filter_fc": float(p.filter_fc),
+        "vdc": float(vdc),
+        "zeta_target": float(p.zeta_target),
+        "observer_pole_multiplier": float(p.observer_pole_multiplier),
     }
 
 
@@ -622,83 +671,69 @@ def run_simulation(p: SimParams) -> tuple[pl.DataFrame, SimMeta]:
         raise ValueError(msg)
 
     motor = CATALOG[p.variant_name]
-    Vdc = float(motor.rated_voltage)
-    params_for_hash = _params_dict_for_hash(p)
-    params_json = canonical_params_json(params_for_hash)
+    t_step_frac = resolve_t_step_frac(p, motor)
+    vdc = resolve_vdc(p, motor)
+    params_json = canonical_params_json(_params_dict_for_hash(p, t_step_frac, vdc))
     h = params_hash(params_json)
     out_path = output_path_for(motor)
-
+    TL = default_tl_ref(motor, t_end=p.t_end, t_step=p.t_step, frac=t_step_frac)
+    # Derive (L_f, C_f, R_d) unconditionally for parquet metadata — the
+    # Drivetrain only instantiates an LCLFilter when filter_enabled is true,
+    # but the metadata always records what the filter would have been.
     L_f, C_f, R_d = FilterConfig.derive_components(motor.L_s, p.filter_fc)
-    encoder_cfg = EncoderConfig(
-        n_bits=p.n_bits,
-        theta_offset=p.theta_offset,
-        A1=p.A1,
-        k1=p.k1,
-        phi1=p.phi1,
-        A2=p.A2,
-        k2=p.k2,
-        phi2=p.phi2,
-        A3=p.A3,
-        k3=p.k3,
-        phi3=p.phi3,
-        Ts_enc=p.ts_enc,
-    )
-    TL = default_tl_ref(motor, t_end=p.t_end, t_step=p.t_step, frac=p.t_step_frac)
-    Kp_used, Ki_used = _resolve_gains(p, motor)
 
-    foc_cfg = FocConfig(
-        R_s=motor.R_s,
-        L_s=motor.L_s,
-        psi_m=motor.psi_m,
-        p=motor.p,
-        Vdc=Vdc,
-        f_pwm=p.f_pwm,
-        Kp=Kp_used,
-        Ki=Ki_used,
-    )
-    controller = FOCController(foc_cfg)
-    inverter = Inverter(InverterConfig(Vdc=Vdc, f_pwm=p.f_pwm, t_dead=p.t_dead, pwm_mode=p.pwm_mode))
-    encoder = EncoderMeasurement(FluxEncoder(encoder_cfg), p=motor.p)
-    motor_fmu = PMSMAbcModel(motor)
-    lcl_filter = LCLFilter(L_f=L_f, C_f=C_f, R_d=R_d) if p.filter_enabled else None
-
-    with Simulator(motor_fmu, encoder, controller, inverter, filter=lcl_filter) as sim:
+    with Drivetrain.build(p, motor) as drive:
+        sim = Simulator(drive)
         df = sim.run(TL, T_s=p.dt_sim, T_f=p.Tf, inverter_mode=p.inverter_mode)
 
-    write_parquet(
-        df,
-        motor=motor,
-        controller=controller,
-        Vdc=Vdc,
-        f_pwm=p.f_pwm,
-        t_dead=p.t_dead,
-        ts_enc=p.ts_enc,
-        inverter_mode=p.inverter_mode,
-        pwm_mode=p.pwm_mode,
-        filter_enabled=p.filter_enabled,
-        filter_fc=p.filter_fc,
-        L_f=L_f,
-        C_f=C_f,
-        R_d=R_d,
-        pi_mode=p.pi_mode,
-        pi_tc=p.pi_tc,
-        pi_k1=p.pi_k1,
-        params_json=params_json,
-        params_hash_str=h,
-        out_path=out_path,
-    )
-    parquet_meta = read_metadata(out_path)
-    meta = SimMeta(
-        params_hash=h,
-        rows=df.height,
-        err_pct=_tracking_err_pct(df, motor),
-        artifact_name=out_path.name,
-        foc_kp=controller.Kp,
-        foc_ki=controller.Ki,
-        pi_mode=p.pi_mode,
-        motor_family=motor.family,
-        motor_name=motor.name,
-        rated_voltage=Vdc,
-        parquet_meta=parquet_meta,
-    )
+        write_parquet(
+            df,
+            motor=motor,
+            controller=drive.controller,
+            Vdc=drive.Vdc,
+            f_pwm=p.f_pwm,
+            t_dead=p.t_dead,
+            ts_enc=p.ts_enc,
+            inverter_mode=p.inverter_mode,
+            pwm_mode=p.pwm_mode,
+            filter_enabled=p.filter_enabled,
+            filter_fc=p.filter_fc,
+            L_f=L_f,
+            C_f=C_f,
+            R_d=R_d,
+            pi_mode=p.pi_mode,
+            pi_tc=p.pi_tc,
+            pi_k1=p.pi_k1,
+            params_json=params_json,
+            params_hash_str=h,
+            out_path=out_path,
+        )
+        parquet_meta = read_metadata(out_path)
+        n = df.height
+        tail = df.slice(int(0.75 * n), n - int(0.75 * n))
+        i_peak_rated = i_q_peak_of(motor)
+        # Window of ~2 PWM periods for the abc-frame ripple metric. Short
+        # enough that the rotating fundamental at ω_e can't swing across it,
+        # so the windowed peak-to-peak isolates PWM-band content from the
+        # fundamental sinusoid. T_s is the simulator's inner step; default
+        # T_s = T_pwm / 20 ⇒ window ≈ 40 samples.
+        T_pwm = 1.0 / p.f_pwm
+        T_s_default = float(p.dt_sim) if p.dt_sim is not None else T_pwm / 20.0
+        ia_window = max(4, int(2.0 * T_pwm / T_s_default))
+        meta = SimMeta(
+            params_hash=h,
+            rows=df.height,
+            err_pct=_tracking_err_pct(df, motor),
+            artifact_name=out_path.name,
+            foc_kp=drive.controller.Kp,
+            foc_ki=drive.controller.Ki,
+            pi_mode=p.pi_mode,
+            motor_family=motor.family,
+            motor_name=motor.name,
+            rated_voltage=drive.Vdc,
+            iq_ripple=RippleStats.from_signal(tail["i_q_meas"].to_numpy(), rated=i_peak_rated, cmd=float(tail["i_q_ref"].mean())),
+            te_ripple=RippleStats.from_signal(tail["T_e"].to_numpy(), rated=motor.te_cont_cat, cmd=float(tail["TL_ref"].mean())),
+            ia_ripple=RippleStats.from_signal(tail["i_a"].to_numpy(), rated=i_peak_rated, cmd=None, window_samples=ia_window),
+            parquet_meta=parquet_meta,
+        )
     return df, meta

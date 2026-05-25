@@ -3,8 +3,9 @@
 Usage:
     uvx --with weasyprint python docs/build_user_manual.py
 
-Re-run whenever docs/user_manual.html changes. WeasyPrint resolves the
-`<img src="../assets/logo.png">` reference relative to the HTML file path.
+Re-run whenever docs/user_manual.html changes. WeasyPrint resolves
+`<img src="../frontend/public/logo.png">` relative to the HTML file path
+(the same logo the Next.js bundle serves at /logo.png).
 """
 
 from pathlib import Path

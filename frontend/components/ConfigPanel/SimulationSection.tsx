@@ -20,6 +20,8 @@ export function TrajectorySection() {
         step={0.05}
         min={0}
         max={1.5}
+        suffix="(blank=auto)"
+        nullable
       />
       <NumberField name="Tf" label={<Sub stem="T" sub="f" />} step={1e-3} min={1e-3} max={5.0} suffix="s (blank=auto)" nullable />
     </Section>

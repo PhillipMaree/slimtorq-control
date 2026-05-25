@@ -69,14 +69,46 @@ _C_BY_MEASUREMENT: dict[str, np.ndarray] = {
     "capacitor_voltage": np.array([0.0, 1.0, 0.0]),
 }
 
-# Conservative default observer gains. Starting points only — not tuned.
-# Picked so the gain pushes the corresponding measured state toward the
-# innovation. Real designs should pole-place L against (A - L C).
-_DEFAULT_GAIN: dict[str, np.ndarray] = {
-    "motor_current": np.array([0.0, 0.0, 500.0]),
-    "inverter_current": np.array([500.0, 0.0, 0.0]),
-    "capacitor_voltage": np.array([0.0, 500.0, 0.0]),
-}
+def compute_observer_gain(A: np.ndarray, C: np.ndarray, pole: float) -> np.ndarray:
+    """Pole-place the Luenberger observer gain via Ackermann's formula.
+
+    Places all three eigenvalues of ``A - L·C`` coincident at ``-pole``.
+    Uses the dual relationship: pole placement for an observer is the
+    state-feedback problem for the transposed pair ``(A^T, C^T)``. Standard
+    Ackermann:
+
+        L = (p(A^T) · O⁻¹ · e_n^T)^T
+
+    where ``O = [C^T, A^T·C^T, (A^T)²·C^T]`` is the observability matrix
+    (= controllability matrix of the dual), ``e_n = [0, …, 0, 1]`` selects
+    the last column, and ``p(λ) = (λ + pole)³`` is the desired
+    characteristic polynomial.
+
+    Args:
+        A: 3×3 continuous-time plant matrix.
+        C: (3,) measurement row vector.
+        pole: positive real; observer eigenvalues placed at ``-pole``.
+
+    Returns:
+        Observer gain ``L`` of shape (3,).
+    """
+    if pole <= 0.0:
+        msg = f"pole must be positive (got {pole!r}); observer poles are placed at -pole"
+        raise ValueError(msg)
+    AT = A.T
+    CT = C.reshape(-1, 1)  # column
+    # Observability matrix of (A, C) = controllability of (A^T, C^T):
+    #     O_dual = [C^T, A^T·C^T, (A^T)²·C^T]      (n × n for n=3)
+    O_dual = np.hstack([CT, AT @ CT, np.linalg.matrix_power(AT, 2) @ CT])
+    if abs(np.linalg.det(O_dual)) < 1e-30:
+        msg = "observability matrix is singular for this (A, C); plant is not observable from this measurement"
+        raise ValueError(msg)
+    # Desired closed-loop characteristic polynomial p(λ) = (λ + pole)^3
+    #     = λ³ + 3·pole·λ² + 3·pole²·λ + pole³
+    p_of_AT = np.linalg.matrix_power(AT, 3) + 3.0 * pole * np.linalg.matrix_power(AT, 2) + 3.0 * pole**2 * AT + pole**3 * np.eye(3)
+    e_n = np.array([0.0, 0.0, 1.0])
+    K_dual = e_n @ np.linalg.inv(O_dual) @ p_of_AT
+    return K_dual.reshape(3).copy()
 
 
 def _flatten_3(name: str, arr: np.ndarray) -> np.ndarray:
@@ -117,8 +149,9 @@ class LCLObserver:
     def __init__(
         self,
         params: LCLParams,
+        *,
         measurement_type: MeasurementType = "motor_current",
-        observer_gain: np.ndarray | None = None,
+        observer_gain: np.ndarray,
         initial_state: np.ndarray | None = None,
         max_abs_state: float | None = None,
     ) -> None:
@@ -146,10 +179,7 @@ class LCLObserver:
         self.E = np.array([0.0, 0.0, -1.0 / params.Lload])
         self.C = _C_BY_MEASUREMENT[measurement_type].copy()
 
-        if observer_gain is None:
-            self.L = _DEFAULT_GAIN[measurement_type].copy()
-        else:
-            self.L = _flatten_3("observer_gain", observer_gain)
+        self.L = _flatten_3("observer_gain", observer_gain)
 
         if initial_state is None:
             self.x_hat = np.zeros(3)
@@ -219,12 +249,24 @@ if __name__ == "__main__":
     # Smoke test: plausible LCL + motor for a slotless PMSM.
     L_s = 7.7e-6
     R_s = 0.2285
-    L_f = L_s / 4.0
+    L_f = L_s
     C_f = 1.0 / ((2.0 * math.pi * 5000.0) ** 2 * L_f)
     params = LCLParams(L1=L_f, R1=0.0, Cf=C_f, Lload=L_s, Rload=R_s, Ts=1e-6)
     print(f"Resonance: f_res = {params.resonance_frequency_hz():.1f} Hz")
 
-    obs = LCLObserver(params, measurement_type="motor_current")
+    # Place observer poles at 3 × ω_res via Ackermann.
+    A_smoke = np.array(
+        [
+            [-params.R1 / params.L1, -1.0 / params.L1, 0.0],
+            [1.0 / params.Cf, 0.0, -1.0 / params.Cf],
+            [0.0, 1.0 / params.Lload, -params.Rload / params.Lload],
+        ]
+    )
+    C_smoke = _C_BY_MEASUREMENT["motor_current"]
+    L_obs = compute_observer_gain(A_smoke, C_smoke, pole=3.0 * params.resonance_frequency_rad_s())
+    print(f"L = {L_obs}")
+
+    obs = LCLObserver(params, measurement_type="motor_current", observer_gain=L_obs)
     v_inv = 24.0  # constant inverter voltage
     y_meas = 0.0  # pretend motor current measurement is zero (worst innovation)
     for k in range(20):

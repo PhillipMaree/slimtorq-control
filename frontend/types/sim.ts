@@ -23,7 +23,7 @@ export interface SimParams {
   dt_sim: number | null;
   t_end: number;
   t_step: number;
-  t_step_frac: number;
+  t_step_frac: number | null;
   Tf: number | null;
   pi_mode: PiMode;
   Kp: number | null;
@@ -34,6 +34,15 @@ export interface SimParams {
   pwm_mode: PwmMode;
   filter_enabled: boolean;
   filter_fc: number;
+  vdc: number | null;
+  zeta_target: number;
+  observer_pole_multiplier: number;
+}
+
+export interface RippleStats {
+  delta_pp: number;
+  pct_rated: number;
+  pct_cmd: number | null;
 }
 
 export interface SimMeta {
@@ -47,6 +56,9 @@ export interface SimMeta {
   motor_family: string;
   motor_name: string;
   rated_voltage: number;
+  iq_ripple: RippleStats;
+  te_ripple: RippleStats;
+  ia_ripple: RippleStats;
   parquet_meta: Record<string, string>;
 }
 
@@ -56,7 +68,7 @@ export interface Variant {
   p: number;
   R_s: number;
   L_s: number;
-  psi_m: number;
+  lambda_PM: number;
   J: number;
   rated_voltage: number;
   i_cont: number;

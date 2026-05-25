@@ -50,14 +50,18 @@ select = [
 # L_s, psi_m, Vdc, T_e, T_L, TL, Tf, V_max, A1/A2/A3 …). Renaming to
 # snake_case would break the link to equations in module docstrings.
 "src/*.py" = ["N803", "N806", "N802"]
-# Tuning + controller docstrings deliberately use Greek symbols (σ, θ, ω,
-# ψ, τ) to mirror the math; they are never executed as code.
-"src/tuning.py" = ["N803", "N806", "N802", "RUF002"]
-"src/controller.py" = ["N803", "N806", "N802", "RUF002"]
-"src/model.py" = ["N803", "N806", "N802", "RUF002"]
-"src/observer.py" = ["N803", "N806", "N802", "RUF002"]
-"src/simulator.py" = ["N803", "N806", "N802", "RUF002"]
-"tests/*.py" = ["N803", "N806", "N802", "RUF002"]
+# Tuning + controller docstrings, comments and diagnostic strings
+# deliberately use Greek symbols (σ, θ, ω, ψ, τ, α, ζ, Δ) and special math
+# operators (·, ≤, ≈, ⇒, −) to mirror the math; they are never executed as
+# identifiers. RUF001/002/003 are waived for the same reason as the
+# control-symbol naming rules above.
+"src/tuning.py" = ["N803", "N806", "N802", "RUF001", "RUF002", "RUF003"]
+"src/controller.py" = ["N803", "N806", "N802", "RUF001", "RUF002", "RUF003"]
+"src/model.py" = ["N803", "N806", "N802", "RUF001", "RUF002", "RUF003"]
+"src/observer.py" = ["N803", "N806", "N802", "RUF001", "RUF002", "RUF003"]
+"src/simulator.py" = ["N803", "N806", "N802", "RUF001", "RUF002", "RUF003"]
+"src/drivetrain.py" = ["N803", "N806", "N802", "RUF001", "RUF002", "RUF003"]
+"tests/*.py" = ["N803", "N806", "N802", "RUF001", "RUF002", "RUF003"]
 
 [tool.coverage.run]
 source = ["src"]

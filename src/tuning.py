@@ -103,6 +103,10 @@ class PITuningResult:
     T_sigma: float | None = None
     tau_e_eq: float | None = None
     f_pwm: float | None = None
+    # Active-damping gain on capacitor current. Set by callers that have
+    # an LCL plant + a damping-ratio target; ``None`` when no LCL or when
+    # active damping is not engaged.
+    Kd: float | None = None
     notes: tuple[str, ...] = field(default_factory=tuple)
 
 

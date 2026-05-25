@@ -6,6 +6,7 @@ import { Section, Sub } from './Section';
 export function InverterSection() {
   return (
     <Section title="Power stage" helpKey="section:power-stage">
+      <NumberField name="vdc" label={<Sub stem="V" sub="dc" />} step={1} min={0} max={2000} suffix="V" />
       <NumberField name="f_pwm" label={<Sub stem="f" sub="pwm" />} step={1000} min={1000} max={100000} suffix="Hz" />
       <NumberField name="t_dead" label={<Sub stem="t" sub="dead" />} step={1e-8} min={0} max={5e-6} suffix="s" />
       <RadioField
