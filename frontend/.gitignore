@@ -1,0 +1,8 @@
+node_modules
+.next
+out
+.env.local
+!.env.example
+*.log
+.DS_Store
+types/api.d.ts

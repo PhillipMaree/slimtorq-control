@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SlimTorq Simulator — User Manual</title>
+<style>
+:root {
+    --alva-coral:        #F76E5C;
+    --alva-coral-dark:   #E0543F;
+    --alva-coral-soft:   #FFE4DE;
+    --alva-text:         #1A1A1A;
+    --alva-text-muted:   #5B5B5B;
+    --alva-bg:           #FFFFFF;
+    --alva-bg-panel:     #F7F7F8;
+    --alva-border:       #E5E5E7;
+}
+
+@page {
+    size: A4;
+    margin: 14mm 14mm 14mm 14mm;
+    @bottom-left {
+        content: "SlimTorq Simulator · Alva Industries";
+        font-family: "Inter", "Helvetica Neue", system-ui, -apple-system, sans-serif;
+        font-size: 7.6pt;
+        color: var(--alva-text-muted);
+        border-top: 1px solid var(--alva-border);
+        padding-top: 1mm;
+    }
+    @bottom-right {
+        content: counter(page) " / " counter(pages);
+        font-family: "Inter", "Helvetica Neue", system-ui, -apple-system, sans-serif;
+        font-size: 7.6pt;
+        color: var(--alva-text-muted);
+        border-top: 1px solid var(--alva-border);
+        padding-top: 1mm;
+    }
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background: var(--alva-bg);
+    color: var(--alva-text);
+    font-family: "Inter", "Helvetica Neue", system-ui, -apple-system, sans-serif;
+    font-size: 8.6pt;
+    line-height: 1.32;
+    font-feature-settings: "ss01", "cv11";
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0 0 0.5rem 0;
+    border-bottom: 2px solid var(--alva-coral);
+    margin-bottom: 0.6rem;
+}
+.header img {
+    height: 24pt;
+    width: auto;
+}
+.header-text { display: flex; flex-direction: column; line-height: 1.15; }
+.header-title { font-size: 13pt; font-weight: 600; color: var(--alva-text); letter-spacing: -0.01em; }
+.header-sub   { font-size: 8pt; color: var(--alva-coral); font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; }
+
+h2 {
+    font-size: 8.2pt;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--alva-text-muted);
+    margin: 0.7rem 0 0.25rem 0;
+    padding-bottom: 0.15rem;
+    border-bottom: 1px solid var(--alva-border);
+}
+
+h3 {
+    font-size: 9pt;
+    font-weight: 600;
+    color: var(--alva-text);
+    margin: 0.5rem 0 0.15rem 0;
+}
+
+p { margin: 0.2rem 0; }
+
+ul, ol { margin: 0.15rem 0; padding-left: 1.05rem; }
+li { margin: 0.06rem 0; }
+
+code, .k {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 8.1pt;
+    background: var(--alva-bg-panel);
+    color: var(--alva-coral-dark);
+    padding: 0.01rem 0.18rem;
+    border-radius: 0.15rem;
+    border: 1px solid var(--alva-border);
+}
+
+.two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.25rem 0 0.4rem 0;
+    font-size: 8.2pt;
+}
+th, td {
+    text-align: left;
+    padding: 0.18rem 0.35rem;
+    border-bottom: 1px solid var(--alva-border);
+    vertical-align: top;
+}
+th {
+    color: var(--alva-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 7.4pt;
+    font-weight: 600;
+    background: var(--alva-bg-panel);
+    border-bottom: 1px solid var(--alva-coral);
+}
+td:first-child { white-space: nowrap; font-weight: 500; }
+
+.callout {
+    background: var(--alva-coral-soft);
+    border-left: 2px solid var(--alva-coral);
+    padding: 0.25rem 0.45rem;
+    margin: 0.3rem 0;
+    font-size: 8.1pt;
+}
+
+.foot {
+    margin-top: 0.5rem;
+    padding-top: 0.35rem;
+    border-top: 1px solid var(--alva-border);
+    font-size: 7.6pt;
+    color: var(--alva-text-muted);
+    display: flex;
+    justify-content: space-between;
+}
+
+.page-break { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <img src="../frontend/public/logo.png" alt="Alva Industries">
+    <div class="header-text">
+        <span class="header-title">SlimTorq Simulator — User Manual</span>
+        <span class="header-sub">FOC · PWM · Inverter · LCL · Encoder</span>
+    </div>
+</div>
+
+<p>SlimTorq is a closed-loop simulator for a slotless PMSM driven by Field-Oriented
+Control. The plant is an OpenModelica FMU (<code>SlotlessPMSM_abc.fmu</code>); the FOC
+controller, encoder, PWM inverter, and optional LCL filter run in Python and
+update the FMU at the inner sim step. Configure a run from the left panel,
+click <strong>Simulate</strong>, read the plots on the right. Every Simulate click
+runs a fresh sim and overwrites <code>.temp/&lt;family&gt;_&lt;variant&gt;.parquet</code>.</p>
+
+<h2>Install &amp; run (Docker, one call)</h2>
+
+<p>Only requirement on the host is Docker Engine or Docker Desktop
+(<a href="https://docs.docker.com/get-docker/">docs.docker.com/get-docker</a>).
+The published image bundles the Python deps, motor catalog, assets, and
+the pre-built FMU — no Python or OpenModelica toolchain needed.</p>
+
+<ol>
+<li>Install Docker on your PC (Linux, macOS, or Windows + WSL2).</li>
+<li>From the repo root run: <code>docker compose up</code></li>
+<li>Open <code>http://localhost:8000</code> in your browser.</li>
+</ol>
+
+<p>Compose pulls (or builds) the image, mounts a named volume for the
+parquet artifacts, and starts the service. All runtime settings — port,
+CORS, frontend bundle path, artifact directory, catalog path — live in
+<code>config/config.yaml</code> and can be overridden per-env with the
+double-underscore convention (e.g. <code>APP__PORT=9000</code>,
+<code>ARTIFACTS__DIR=/var/data</code>).</p>
+
+<h2>Config panel — what each field does</h2>
+
+<div class="two-col">
+<div>
+
+<h3>Motor</h3>
+<table>
+<tr><td>variant</td><td>SlimTorq catalog variant. R<sub>s</sub>, L<sub>s</sub>, λ<sub>PM</sub>, p, J, and the BEMF cap are derived from this. V<sub>dc</sub> is auto-filled to 1.5 × rated_voltage when the variant changes; override via the V<sub>dc</sub> field below.</td></tr>
+</table>
+
+<h3>Power stage</h3>
+<table>
+<tr><td>V<sub>dc</sub></td><td>DC bus voltage (V). Defaults to 1.5 × motor.rated_voltage — the industrial-servo rule of thumb that leaves the PI controller headroom for the steady-state R·i<sub>q</sub> drop and the transient L·di<sub>q</sub>/dt. Lower it (e.g. = rated_voltage) to demonstrate undersized-bus saturation; raise it for more headroom at the cost of larger PWM ripple (ΔI<sub>pp</sub> ∝ V<sub>dc</sub>).</td></tr>
+<tr><td>f<sub>pwm</sub></td><td>PWM carrier frequency (Hz). Sets the inner sim step (T<sub>pwm</sub>/20 by default) and the current-loop bandwidth ≈ f<sub>pwm</sub>/9.4.</td></tr>
+<tr><td>t<sub>dead</sub></td><td>Gate-driver dead time (s). 0 disables. Adds 5<sup>th</sup>/7<sup>th</sup> harmonic distortion to i<sub>abc</sub>.</td></tr>
+<tr><td>PWM mode</td><td><code>sine</code>, <code>svpwm</code>, <code>dpwmmax</code>, <code>dpwmmin</code>, <code>dpwm1</code>, or <code>auto</code> (svpwm ↔ dpwm1 at m<sub>i</sub> = 0.45/0.55). DPWMx clamps one phase to a rail, ~33% less switching loss.</td></tr>
+</table>
+
+<h3>Output filter (LCL)</h3>
+<table>
+<tr><td>enable</td><td>Insert LCL low-pass between inverter terminals and motor; engages active-damping observer + K<sub>d</sub> injection.</td></tr>
+<tr><td>f<sub>c</sub></td><td>Target cutoff. L<sub>f</sub>, C<sub>f</sub>, R<sub>d</sub> derived as <code>L<sub>f</sub>=L<sub>s</sub></code> (matched), <code>C<sub>f</sub>=1/(ω<sub>c</sub><sup>2</sup>·L<sub>f</sub>)</code>, <code>R<sub>d</sub>=√(L<sub>f</sub>/C<sub>f</sub>)/3</code>. f<sub>res</sub> ≈ √2·f<sub>c</sub>.</td></tr>
+<tr><td>ζ<sub>target</sub></td><td>Active-damping target damping ratio of the dominant LCL pole pair. Drives K<sub>d</sub> = 2·ζ·√(L<sub>total</sub>/C<sub>f</sub>) − (R<sub>1</sub>+R<sub>d</sub>). 0.7 (critical) default; lower → faster but oscillatory; higher → over-damped.</td></tr>
+<tr><td>α<sub>obs</sub></td><td>Observer pole multiplier (× ω<sub>res</sub>). Places the Luenberger observer's three eigenvalues coincident-real at −α·ω<sub>res</sub> via Ackermann. Higher α → faster estimate, more noise amplification. 3.0 default.</td></tr>
+</table>
+
+<h3>Encoder (inductive flux model)</h3>
+<table>
+<tr><td>N<sub>bits</sub></td><td>Absolute resolution; LSB = 2π/2<sup>N</sup>.</td></tr>
+<tr><td>θ<sub>offset</sub></td><td>Constant mounting offset (rad).</td></tr>
+<tr><td>A<sub>k</sub>, k<sub>k</sub>, φ<sub>k</sub></td><td>Three cyclic harmonics: θ<sub>err</sub> = Σ A<sub>k</sub>·sin(k<sub>k</sub>·θ + φ<sub>k</sub>).</td></tr>
+<tr><td>T<sub>s,enc</sub></td><td>Encoder sample period (s). ZOH between samples. Visible as sawtooth ω·T<sub>s,enc</sub> on the encoder-error plot.</td></tr>
+</table>
+
+</div>
+<div>
+
+<h3>Trajectory</h3>
+<table>
+<tr><td>t<sub>end</sub>, t<sub>step</sub></td><td>Sim horizon and load-step time (s).</td></tr>
+<tr><td>T<sub>L</sub><sup>ref</sup>/T<sub>e</sub><sup>peak</sup></td><td>Step amplitude as fraction of catalog peak torque.</td></tr>
+<tr><td>T<sub>f</sub></td><td>Run-length override; <em>None</em> = auto.</td></tr>
+</table>
+
+<h3>Timing</h3>
+<table>
+<tr><td>Δt<sub>sim</sub></td><td>Inner sim step (s); <em>None</em> = T<sub>pwm</sub>/20. Must ≤ T<sub>pwm</sub>/10 (enforced). Use ≤ T<sub>pwm</sub>/50 for clean switching-mode results.</td></tr>
+</table>
+
+<h3>Current loop — PI tuning</h3>
+<p>Each rule is <em>plant-aware</em>. With the LCL filter <strong>off</strong> the plant is the LR motor (R<sub>s</sub>, L<sub>s</sub>); the user's <code>pi_mode</code> selects the rule.</p>
+<p>With the LCL filter <strong>on</strong>, the drivetrain auto-selects Skogestad on the low-frequency equivalent L<sub>eq</sub>=L<sub>1</sub>+L<sub>load</sub>, R<sub>eq</sub>=R<sub>1</sub>+R<sub>load</sub> (rejecting bandwidths within ω<sub>res</sub>/5 of resonance — the active-damping margin), and additionally computes an analytic active-damping gain K<sub>d</sub> = 2·ζ·√(L<sub>total</sub>/C<sub>f</sub>) − (R<sub>1</sub>+R<sub>d</sub>). FOCController subtracts <code>−K<sub>d</sub>·ic<sub>hat</sub></code> from v<sub>dq</sub><sup>ref</sup> before vector saturation, with ic<sub>hat</sub> from the LCL observer (zero-cycle delay).</p>
+<table>
+<tr><td>Modulus Optimum</td><td>K<sub>p</sub>=L·f<sub>pwm</sub>/3, K<sub>i</sub>=R·f<sub>pwm</sub>/3. Default. ≈63° PM, 4.3 % overshoot. (LR plant only.)</td></tr>
+<tr><td>Skogestad SIMC</td><td>K<sub>p</sub>=L/(T<sub>c</sub>+τ), T<sub>i</sub>=min(L/R, k<sub>1</sub>·(T<sub>c</sub>+τ)). T<sub>c</sub>=<em>None</em> uses τ=1.5/f<sub>pwm</sub>; k<sub>1</sub>=1.44 default → ~3× sharper load-step rejection. Auto-applied when LCL is on.</td></tr>
+<tr><td>ζ<sub>target</sub></td><td>Damping ratio of the dominant LCL-plant pole pair under active damping. 0.7 (critically damped) default; lower for faster but oscillatory; higher for over-damped. Drives K<sub>d</sub>.</td></tr>
+<tr><td>Manual</td><td>Type K<sub>p</sub>/K<sub>i</sub> directly. Bypasses the LCL safety gate.</td></tr>
+</table>
+
+<h3>Debug section</h3>
+<table>
+<tr><td>Inverter mode</td><td><code>ideal</code> = v<sub>abc</sub><sup>ref</sup> straight to FMU; <code>average</code> = duty calc but cycle-averaged voltage (no dead-time, isolates scaling bugs); <code>switching</code> = real PWM compare + dead-time (default).</td></tr>
+</table>
+
+<div class="callout">
+<strong>Sticky controls.</strong> Config panel stays pinned while the plot column scrolls. The <strong>Simulate</strong> button sticks to the bottom of the config panel so it's always reachable. Hard-refresh after CSS edits if the page looks stale.
+</div>
+
+</div>
+</div>
+
+<div class="header">
+    <img src="../frontend/public/logo.png" alt="Alva Industries">
+    <div class="header-text">
+        <span class="header-title">Reading the plots</span>
+        <span class="header-sub">12 panels · what to look for</span>
+    </div>
+</div>
+
+<p>The plot column renders 12 Plotly figures from the most-recent parquet. Each
+figure pairs a measurement (solid) with its reference (dashed) using the same
+palette slot per signal. Steady-state metrics are computed on the trailing
+80 % of samples to skip the load-step transient.</p>
+
+<div class="two-col">
+<div>
+
+<h3>Tracking</h3>
+<p>Torque (T<sub>L</sub><sup>ref</sup> vs T<sub>e</sub>), i<sub>q</sub><sup>*</sup> vs i<sub>q</sub>, i<sub>d</sub><sup>*</sup> vs i<sub>d</sub>. Each subplot title carries the steady-state RMS reference-tracking error in %.</p>
+
+<h3>PI performance</h3>
+<p>e<sub>d</sub>, e<sub>q</sub> errors; v<sub>d</sub><sup>ref</sup>, v<sub>q</sub><sup>ref</sup>; |v<sub>dq</sub>| vs the V<sub>max</sub>=V<sub>dc</sub>/2 vector limit (red-dotted). PI-saturation rug strip below shows when the integrator was frozen.</p>
+
+<h3>dq round-trip</h3>
+<p>v<sub>d</sub><sup>actual</sup>−v<sub>d</sub><sup>ref</sup>, v<sub>q</sub><sup>actual</sup>−v<sub>q</sub><sup>ref</sup>, reconstructed from logged post-inverter v<sub>abc</sub> via Clarke+Park. <strong>Cycle-average ≈ 0</strong> proves inverter scaling is correct. Switching-mode shows ripple; average/ideal modes show flat zero.</p>
+
+<h3>i<sub>q</sub> zoom</h3>
+<p>5×T<sub>pwm</sub> window in steady state with carrier-valley guides. Shows the controller's actual measurement noise vs reference.</p>
+
+<h3>i<sub>q</sub> FFT, ω FFT, i<sub>a</sub> FFT</h3>
+<p>Log-magnitude spectra (trailing 80 %, DC removed). Switching ripple shows at 2·f<sub>pwm</sub> in i<sub>q</sub>, at f<sub>pwm</sub> ± n·f<sub>1</sub> in i<sub>a</sub>. Dead-time signature: 5<sup>th</sup>/7<sup>th</sup> of the electrical fundamental in i<sub>a</sub>.</p>
+
+</div>
+<div>
+
+<h3>Phase currents (abc)</h3>
+<p>i<sub>a</sub>, i<sub>b</sub>, i<sub>c</sub> overlaid. With switching enabled and no filter, ripple amplitude Δi<sub>pp</sub> ≈ V<sub>dc</sub>·T<sub>pwm</sub>/(8·L<sub>s</sub>).</p>
+
+<h3>Phase voltages</h3>
+<p>v<sub>a</sub><sup>ref</sup> dashed, post-inverter v<sub>a</sub> faint solid, and (when LCL on) v<sub>a</sub><sup>motor</sup> at filter output as medium solid. With filter on, the motor trace should hug the smooth ref while the inverter trace hits ±V<sub>dc</sub>/2.</p>
+
+<h3>PWM duties</h3>
+<p>d<sub>a</sub>, d<sub>b</sub>, d<sub>c</sub>. With <code>svpwm</code>/<code>dpwmx</code> the shape clearly departs from pure sine — visual confirmation the zero-sequence injection took effect.</p>
+
+<h3>Encoder error</h3>
+<p>wrap(θ<sub>m</sub><sup>true</sup>−θ<sub>m</sub><sup>meas</sup>) in mrad. Dashed envelope at ω·T<sub>s,enc</sub> is the ZOH bound; the trace should ride inside this band. Excursions outside it are cyclic harmonics + quantization + offset.</p>
+
+<h3>Speed + saturation</h3>
+<p>ω<sub>m</sub><sup>true</sup> vs ω<sub>m</sub><sup>meas</sup>, plus a rug strip marking d/q PI saturation events.</p>
+
+<h3>Observer (LCL only)</h3>
+<p>Appears next to <em>Signal Processing</em> when the LCL filter is enabled. Two panels overlay the measured dq currents (i<sub>d</sub><sup>meas</sup>, i<sub>q</sub><sup>meas</sup>) with the Luenberger observer's three estimated LCL states (i<sub>1</sub>, v<sub>C</sub>, i<sub>m</sub>) and the derived capacitor current i<sub>c</sub> = i<sub>1</sub> − i<sub>m</sub>. The observer's gain L is pole-placed at α<sub>obs</sub>·ω<sub>res</sub> via Ackermann. <strong>Active damping is closed</strong>: FOCController consumes i<sub>c</sub><sup>hat</sup> as v<sub>damp</sub> = −K<sub>d</sub>·i<sub>c</sub><sup>hat</sup> per axis (logged as <code>ad_d</code>, <code>ad_q</code> in the parquet), with K<sub>d</sub> set analytically by ζ<sub>target</sub>. The FFT view shows residual spectral content after damping.</p>
+
+</div>
+</div>
+
+<h2>Log output — what's in the parquet</h2>
+
+<p>Each Simulate POST writes <code>&lt;artifacts.dir&gt;/&lt;family&gt;_&lt;variant&gt;.parquet</code> — a full per-sample log of the inner-loop signals plus a key-value metadata block. The same file is what the UI fetches as Apache Arrow IPC to render the 12 plots; external tools (polars, duckdb, pandas) read it unchanged.</p>
+
+<div class="two-col">
+<div>
+
+<h3>Per-sample columns (rows = inner ticks)</h3>
+<table>
+<tr><td>Time</td><td><code>t</code></td></tr>
+<tr><td>References</td><td><code>TL_ref</code>, <code>i_d_ref</code>, <code>i_q_ref</code>, <code>v_d_ref</code>, <code>v_q_ref</code>, <code>v_a_ref</code>, <code>v_b_ref</code>, <code>v_c_ref</code></td></tr>
+<tr><td>Measurements</td><td><code>T_e</code>, <code>i_d_meas</code>, <code>i_q_meas</code>, <code>i_a</code>, <code>i_b</code>, <code>i_c</code>, <code>θ_m_true</code>, <code>θ_m_meas</code>, <code>ω_m_true</code>, <code>ω_m_meas</code></td></tr>
+<tr><td>PWM duties</td><td><code>d_a</code>, <code>d_b</code>, <code>d_c</code></td></tr>
+<tr><td>Switching states</td><td><code>s_a</code>, <code>s_b</code>, <code>s_c</code> (int8)</td></tr>
+<tr><td>Post-inverter</td><td><code>v_a</code>, <code>v_b</code>, <code>v_c</code></td></tr>
+<tr><td>Post-LCL motor terminals</td><td><code>v_a_motor</code>, <code>v_b_motor</code>, <code>v_c_motor</code> (= post-inverter when no LCL)</td></tr>
+<tr><td>Modulation depth</td><td><code>m_index</code>, <code>pwm_mode_active</code> (int8 code, mode-active-this-tick)</td></tr>
+<tr><td>LCL observer (NaN when filter off)</td><td><code>i1_d_hat</code>, <code>vc_d_hat</code>, <code>im_d_hat</code>, <code>ic_d_hat</code>, <code>i1_q_hat</code>, <code>vc_q_hat</code>, <code>im_q_hat</code>, <code>ic_q_hat</code></td></tr>
+<tr><td>Active damping</td><td><code>ad_d</code>, <code>ad_q</code> (= −K<sub>d</sub>·ic<sub>hat</sub> per axis; 0 when no LCL)</td></tr>
+<tr><td>Saturation flags</td><td><code>sat_d</code>, <code>sat_q</code> (bool)</td></tr>
+</table>
+
+</div>
+<div>
+
+<h3>Parquet key/value metadata (<code>slimtorq.*</code>)</h3>
+<table>
+<tr><td>Identity</td><td><code>schema_version</code>, <code>params_hash</code> (blake2b-8 of canonical params), <code>params_json</code> (full SimParams)</td></tr>
+<tr><td>FOC tuning</td><td><code>foc_kp</code>, <code>foc_ki</code>, <code>pi_mode</code>, <code>pi_tc</code>, <code>pi_k1</code></td></tr>
+<tr><td>Power stage</td><td><code>vdc</code> (resolved bus voltage), <code>f_pwm</code>, <code>t_dead</code>, <code>ts_enc</code>, <code>inverter_mode</code>, <code>pwm_mode</code></td></tr>
+<tr><td>LCL filter</td><td><code>filter_enabled</code>, <code>filter_fc</code>, <code>filter_lf</code>, <code>filter_cf</code>, <code>filter_rd</code></td></tr>
+<tr><td>Mechanical</td><td><code>b_est</code> (steady-state viscous-friction estimate from trailing 20%)</td></tr>
+<tr><td>Motor</td><td><code>motor_family</code>, <code>motor_name</code>, <code>motor_rated_voltage</code>, <code>r_s</code>, <code>l_s</code>, <code>pole_pairs</code>, <code>i_q_peak</code>, <code>te_peak_1s</code></td></tr>
+</table>
+
+<h3>SimMeta (returned by <code>POST /api/simulate</code>)</h3>
+<table>
+<tr><td>Run identity</td><td><code>params_hash</code>, <code>artifact_name</code>, <code>rows</code></td></tr>
+<tr><td>Tracking</td><td><code>err_pct</code> (RMS i<sub>q</sub><sup>meas</sup>−i<sub>q</sub><sup>ref</sup>, trailing 80%, % of i<sub>q,peak</sub>)</td></tr>
+<tr><td>Resolved gains</td><td><code>foc_kp</code>, <code>foc_ki</code>, <code>pi_mode</code></td></tr>
+<tr><td>Motor</td><td><code>motor_family</code>, <code>motor_name</code>, <code>rated_voltage</code> (= V<sub>dc</sub> used)</td></tr>
+<tr><td>Ripple — i<sub>q</sub></td><td><code>iq_ripple = {delta_pp, pct_rated, pct_cmd}</code> (controller dq frame; full-tail pp)</td></tr>
+<tr><td>Ripple — T<sub>e</sub></td><td><code>te_ripple = {delta_pp, pct_rated, pct_cmd}</code> (motor torque; full-tail pp)</td></tr>
+<tr><td>Ripple — i<sub>a</sub></td><td><code>ia_ripple = {delta_pp, pct_rated, pct_cmd=null}</code> (phase current; windowed pp ~2·T<sub>pwm</sub> to reject fundamental)</td></tr>
+<tr><td>Parquet metadata</td><td><code>parquet_meta</code>: dict echo of the slimtorq.* keys above</td></tr>
+</table>
+
+<div class="callout">
+<strong>Reading external.</strong> Polars: <code>pl.read_parquet(path)</code> for columns; <code>pyarrow.parquet.read_metadata(path).metadata</code> for the slimtorq.* keys. The trace is over-written on every Simulate; if you need to keep a run, copy it out of <code>.temp/</code> before the next click.
+</div>
+
+</div>
+</div>
+
+<h2>Workflow tips</h2>
+
+<ul style="page-break-inside: avoid;">
+<li><strong>Diagnose noise</strong>: bypass with <code>Inverter mode = ideal</code>. If clean, the inverter is the source. Then try <code>average</code> — non-zero <code>mean Δv<sub>d</sub></code> in the dq round-trip means a scaling bug; flat zero means switching ripple is the issue.</li>
+<li><strong>Tune for disturbance rejection</strong>: switch PI to Skogestad, lower k<sub>1</sub> toward 1.44. Tighter integrator → smaller <code>err %</code> in the tracking subplot titles.</li>
+<li><strong>Pick f<sub>c</sub> for the LCL</strong>: aim near f<sub>pwm</sub>/10 for ~40 dB carrier attenuation. The hint under the input gives the loop-safe floor for the current f<sub>pwm</sub>.</li>
+<li><strong>Read the ripple percentages carefully</strong>: the Header shows Δi<sub>q,pp</sub>, ΔT<sub>e,pp</sub>, Δi<sub>a,pp</sub> as % of <em>continuous</em> rating. When the motor runs above continuous (typical for short load-step peaks), these naturally exceed 100% even with good tracking — cross-reference the absolute Δ values and per-command percentages. Δi<sub>a,pp</sub> is computed over short sliding windows (~2 PWM periods) to isolate PWM ripple from the rotating fundamental.</li>
+<li><strong>Voltage / ripple trade-off</strong>: raising V<sub>dc</sub> gives the PI more headroom (helps high-current low-V windings escape saturation) but raises PWM current ripple linearly. The four levers (V<sub>dc</sub>, f<sub>pwm</sub>, LCL on/off, ζ<sub>target</sub>) are co-designed — turning one usually requires tuning at least one other.</li>
+<li><strong>Sample-rate aliasing check</strong>: at fixed f<sub>pwm</sub>, halve Δt<sub>sim</sub>. If noise drops, it's edge quantization in the modulator, not real inverter physics.</li>
+<li><strong>Output</strong>: each run writes <code>.temp/&lt;family&gt;_&lt;variant&gt;.parquet</code> with full per-sample log and <code>slimtorq.*</code> metadata (params hash, tuning, modes, filter values). <code>SimMeta</code> JSON returned by <code>POST /api/simulate</code> additionally carries iq/te/ia ripple stats.</li>
+</ul>
+
+</body>
+</html>

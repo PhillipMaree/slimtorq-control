@@ -26,7 +26,7 @@ from pathlib import Path
 from fmpy import extract, read_model_description
 from fmpy.fmi2 import FMU2Slave
 
-from model import InverterConfig, PmsmModel
+from src.model import InverterConfig, PmsmModel
 
 # ---------------------------------------------------------------------------
 # PWM modulator
@@ -208,15 +208,15 @@ class LCLFilter:
     for passive damping):
 
         v_inv ──L_f──┬── v_motor ──L_s── motor back-EMF
-                     │
+              i_1    │      i_motor
                     C_f
                      │
                     R_d
                      │
                      ─── (3-phase common; CM is rejected by the FMU's Clarke)
 
-    Two state variables per phase: inductor current `i_Lf` and capacitor
-    voltage `v_Cf`. ODE (per phase):
+    Two state variables per phase: inductor current `i_Lf` (≡ ``i_1``, the
+    inverter-side current) and capacitor voltage `v_Cf`. ODE (per phase):
 
         i_Lf' = (v_inv - v_Cf - R_d * (i_Lf - i_motor)) / L_f
         v_Cf' = (i_Lf - i_motor) / C_f
@@ -225,6 +225,18 @@ class LCLFilter:
     Integrated by forward Euler at the simulator's inner step `dt`. Stable
     at the default dt_sim = T_pwm / 20 = 1 µs (50 kHz carrier) for cutoffs
     >= a few kHz.
+
+    Inverter-side current exposure (``i_1``). The state ``_i_Lf`` is the
+    current flowing through ``L_f`` — equivalent to what a current sensor
+    physically placed between the inverter FETs and the LCL would measure.
+    In real industrial LCL drives that is the **standard sensor placement**
+    and the **standard feedback signal for the inner current loop** (see
+    Liserre et al., IEEE TIA 2005 — "inverter-side current control" / ICC).
+    Exposed here as :py:attr:`i_Lf` so the :class:`Simulator` can hand it
+    to the FOC controller in place of the motor-side current. Doing so
+    eliminates the LCL resonance from the closed-loop transfer function and
+    in particular eliminates the discrete-time anti-damping ``f_pwm/2``
+    limit cycle that observer-driven AD produced (see memo.md §4).
     """
 
     def __init__(self, L_f: float, C_f: float, R_d: float) -> None:
@@ -237,6 +249,17 @@ class LCLFilter:
     def reset(self) -> None:
         self._i_Lf = [0.0, 0.0, 0.0]
         self._v_Cf = [0.0, 0.0, 0.0]
+
+    @property
+    def i_Lf(self) -> tuple[float, float, float]:
+        """Three-phase inverter-side current (= ``i_1`` in the LCL topology).
+
+        Equivalent to the value a physical current sensor placed between the
+        inverter and ``L_f`` would read. The simulator uses this as the FOC
+        feedback signal when LCL is engaged, in place of the motor-side
+        current. See class docstring for the architectural rationale.
+        """
+        return self._i_Lf[0], self._i_Lf[1], self._i_Lf[2]
 
     def step(self, v_inv_abc: tuple[float, float, float], i_motor_abc: tuple[float, float, float], dt: float) -> tuple[float, float, float]:
         v_motor = [0.0, 0.0, 0.0]
@@ -304,7 +327,9 @@ class PMSMAbcModel:
         real_params = {
             "R_s": m.R_s,
             "L_s": m.L_s,
-            "psi_m": m.psi_m,
+            # FMU parameter name "psi_m" is fixed at the Modelica level
+            # (see modelica/Alva.mo); the Python identifier is lambda_PM.
+            "psi_m": m.lambda_PM,
             "J": m.J,
             "B": 1.0e-5,
             "torque_ripple_pct": m.torque_ripple_pct / 100.0,

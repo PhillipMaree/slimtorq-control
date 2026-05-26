@@ -1,0 +1,38 @@
+import type { SimParams } from '@/types/sim';
+
+// Mirrors src/sim_service.py SimParams defaults. Used by the form on first
+// render until /defaults responds.
+export const FORM_DEFAULTS: SimParams = {
+  variant_name: 'STM-130-27-M-4D',
+  f_pwm: 20000.0,
+  t_dead: 2e-7,
+  n_bits: 22,
+  theta_offset: 0.0,
+  A1: 2.4e-5,
+  k1: 1,
+  phi1: 0.0,
+  A2: 5.0e-6,
+  k2: 2,
+  phi2: 0.0,
+  A3: 1.0e-6,
+  k3: 4,
+  phi3: 0.0,
+  ts_enc: 1e-4,
+  dt_sim: null,
+  t_end: 0.05,
+  t_step: 0.005,
+  t_step_frac: null,
+  Tf: null,
+  pi_mode: 'modulus_optimum',
+  Kp: null,
+  Ki: null,
+  pi_tc: null,
+  pi_k1: 1.44,
+  inverter_mode: 'switching',
+  pwm_mode: 'sine',
+  filter_enabled: false,
+  filter_fc: 5000.0,
+  vdc: null,
+  zeta_target: 0.0,
+  observer_pole_multiplier: 3.0,
+};

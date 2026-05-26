@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --alva-bg: #FAFAF7;
+  --alva-panel: #FFFFFF;
+  --alva-border: #E4E2DC;
+  --alva-text: #1A1A1A;
+  --alva-muted: #5B5B5B;
+  --alva-coral: #F76E5C;
+  --alva-coral-dark: #E0543F;
+}
+
+html,
+body {
+  background: var(--alva-bg);
+  color: var(--alva-text);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+}
+
+/* Form rows */
+.alva-row {
+  display: grid;
+  grid-template-columns: 11rem 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+}
+
+.alva-row label {
+  color: var(--alva-muted);
+  font-size: 0.95rem;
+}
+
+.alva-row input[type='number'],
+.alva-row input[type='text'],
+.alva-row select {
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--alva-border);
+  background: #fff;
+  color: var(--alva-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95rem;
+  border-radius: 2px;
+}
+
+.alva-row input:disabled {
+  background: #F1F0EC;
+  color: var(--alva-muted);
+}
+
+.alva-section {
+  border-top: 1px solid var(--alva-border);
+  padding: 0.6rem 0 0.4rem;
+}
+
+.alva-section h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--alva-muted);
+  margin-bottom: 0.4rem;
+}
+
+.alva-btn {
+  background: var(--alva-coral-dark);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 2px;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+}
+
+.alva-btn:hover:not(:disabled) {
+  background: var(--alva-coral);
+}
+
+.alva-btn:disabled {
+  background: #C8C6BF;
+  cursor: not-allowed;
+}
+
+.alva-status {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
+  color: var(--alva-muted);
+  padding: 0.4rem 0;
+  line-height: 1.4;
+}
