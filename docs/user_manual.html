@@ -180,7 +180,7 @@ the pre-built FMU — no Python or OpenModelica toolchain needed.</p>
 <p>Compose pulls (or builds) the image, mounts a named volume for the
 parquet artifacts, and starts the service. All runtime settings — port,
 CORS, frontend bundle path, artifact directory, catalog path — live in
-<code>config/app.yaml</code> and can be overridden per-env with the
+<code>config/config.yaml</code> and can be overridden per-env with the
 double-underscore convention (e.g. <code>APP__PORT=9000</code>,
 <code>ARTIFACTS__DIR=/var/data</code>).</p>
 
@@ -206,6 +206,7 @@ double-underscore convention (e.g. <code>APP__PORT=9000</code>,
 <table>
 <tr><td>enable</td><td>Insert LCL low-pass between inverter terminals and motor; engages active-damping observer + K<sub>d</sub> injection.</td></tr>
 <tr><td>f<sub>c</sub></td><td>Target cutoff. L<sub>f</sub>, C<sub>f</sub>, R<sub>d</sub> derived as <code>L<sub>f</sub>=L<sub>s</sub></code> (matched), <code>C<sub>f</sub>=1/(ω<sub>c</sub><sup>2</sup>·L<sub>f</sub>)</code>, <code>R<sub>d</sub>=√(L<sub>f</sub>/C<sub>f</sub>)/3</code>. f<sub>res</sub> ≈ √2·f<sub>c</sub>.</td></tr>
+<tr><td>ζ<sub>target</sub></td><td>Active-damping target damping ratio of the dominant LCL pole pair. Drives K<sub>d</sub> = 2·ζ·√(L<sub>total</sub>/C<sub>f</sub>) − (R<sub>1</sub>+R<sub>d</sub>). 0.7 (critical) default; lower → faster but oscillatory; higher → over-damped.</td></tr>
 <tr><td>α<sub>obs</sub></td><td>Observer pole multiplier (× ω<sub>res</sub>). Places the Luenberger observer's three eigenvalues coincident-real at −α·ω<sub>res</sub> via Ackermann. Higher α → faster estimate, more noise amplification. 3.0 default.</td></tr>
 </table>
 

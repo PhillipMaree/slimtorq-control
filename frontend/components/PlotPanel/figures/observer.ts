@@ -55,7 +55,7 @@ export const buildObserverTime: FigureBuilder = ({ table }) => {
     yAxis: layout.yAxis,
     axisPointer: layout.axisPointer,
     dataZoom: layout.dataZoom,
-    legend: { top: 0, right: 8, textStyle: { fontSize: 10 } },
+    legend: { top: 0, right: 8, textStyle: { fontSize: 13 } },
     series: [
       line(0, 'i_d_meas', xyPairs(t, id_meas), OBSERVER_COLORS[0], 1.4),
       line(0, 'i1_d_hat', xyPairs(t, i1_d), OBSERVER_COLORS[1]),

@@ -30,19 +30,19 @@ body {
 
 .alva-row label {
   color: var(--alva-muted);
-  font-size: 0.85rem;
+  font-size: 0.95rem;
 }
 
 .alva-row input[type='number'],
 .alva-row input[type='text'],
 .alva-row select {
   width: 100%;
-  padding: 0.25rem 0.45rem;
+  padding: 0.3rem 0.5rem;
   border: 1px solid var(--alva-border);
   background: #fff;
   color: var(--alva-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   border-radius: 2px;
 }
 
@@ -57,7 +57,7 @@ body {
 }
 
 .alva-section h4 {
-  font-size: 0.78rem;
+  font-size: 0.9rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -87,7 +87,7 @@ body {
 
 .alva-status {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.78rem;
+  font-size: 0.9rem;
   color: var(--alva-muted);
   padding: 0.4rem 0;
   line-height: 1.4;

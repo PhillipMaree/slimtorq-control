@@ -47,7 +47,7 @@ export const buildSignalProcessingTime: FigureBuilder = ({ table }) => {
     yAxis: layout.yAxis,
     axisPointer: layout.axisPointer,
     dataZoom: layout.dataZoom,
-    legend: { top: 0, right: 8, textStyle: { fontSize: 10 } },
+    legend: { top: 0, right: 8, textStyle: { fontSize: 13 } },
     series: [
       line(0, 'v_a', xyPairs(t, va), PALETTE[0]),
       line(0, 'v_b', xyPairs(t, vb), PALETTE[1]),

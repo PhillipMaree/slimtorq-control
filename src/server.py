@@ -109,12 +109,19 @@ def get_server() -> uvicorn.Server:
     global __server__
     if __server__ is None:
         cfg = get_config()
+        # ``app`` is passed as an import-string with ``factory=True`` so the
+        # ``reload`` flag in config/config.yaml is honoured by uvicorn — reload
+        # only works when the app is referenced by import path. The
+        # ``get_app`` factory is cached, so within a single worker process the
+        # FastAPI instance is still a singleton.
         config = uvicorn.Config(
-            app=get_app(),
+            app="src.server:get_app",
+            factory=True,
             host=cfg.app.host,
             port=cfg.app.port,
             log_level=cfg.app.log_level,
             log_config=cfg.app.log_config,
+            reload=cfg.app.reload,
         )
         __server__ = uvicorn.Server(config=config)
     return __server__

@@ -29,6 +29,7 @@ export function FilterSection() {
     <Section title="Output filter (LCL)" helpKey="section:filter">
       <CheckboxField name="filter_enabled" label="Enable LCL filter between inverter and motor" />
       <NumberField name="filter_fc" label={<Sub stem="f" sub="c" />} step={500} min={500} max={20000} suffix="Hz" disabled={!enabled} />
+      <NumberField name="zeta_target" label={<Sub stem="ζ" sub="target" />} step={0.05} min={0} max={2.0} suffix="(0 ⇒ AD off)" disabled={!enabled} />
       <NumberField name="observer_pole_multiplier" label={<Sub stem="α" sub="obs" />} step={0.5} min={1} max={10} suffix="× ω_res" disabled={!enabled} />
       <FilterDerived />
     </Section>

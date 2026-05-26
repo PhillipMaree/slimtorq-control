@@ -242,6 +242,14 @@ class Simulator:
         # LCL state observers (d, q axes). Constructed lazily only when the
         # filter is engaged in switching mode — otherwise the LCL states are
         # not part of the plant and the estimates are left as NaN.
+        #
+        # Measurement type is ``inverter_current``: under Option C the FOC
+        # controller closes its loop on i_1 (inverter-side current, exposed
+        # by LCLFilter.i_Lf) rather than i_motor, so the observer's
+        # innovation must use the same signal. The estimated ic_hat is no
+        # longer load-bearing for active damping (AD is replaced by passive
+        # Rd = sqrt(L_f/C_f) yielding ζ ≈ 0.7 directly — see memo.md §4) but
+        # the full LCL state estimate is still logged for telemetry.
         lcl_filter = self.drive.lcl_filter
         observers_active = lcl_filter is not None and inverter_mode == "switching"
         obs_d: LCLObserver | None = None
@@ -260,11 +268,11 @@ class Simulator:
                     [0.0, 1.0 / params.Lload, -params.Rload / params.Lload],
                 ]
             )
-            C_obs = np.array([0.0, 0.0, 1.0])  # motor_current measurement
+            C_obs = np.array([1.0, 0.0, 0.0])  # inverter_current measurement (Option C: PI closed on i_1)
             pole = self.drive.observer_pole_multiplier * params.resonance_frequency_rad_s()
             L_obs = compute_observer_gain(A_obs, C_obs, pole=pole)
-            obs_d = LCLObserver(params, measurement_type="motor_current", observer_gain=L_obs)
-            obs_q = LCLObserver(params, measurement_type="motor_current", observer_gain=L_obs)
+            obs_d = LCLObserver(params, measurement_type="inverter_current", observer_gain=L_obs)
+            obs_q = LCLObserver(params, measurement_type="inverter_current", observer_gain=L_obs)
 
         # Local aliases for the hot inner loop.
         motor_fmu = self.drive.motor_fmu
@@ -276,8 +284,23 @@ class Simulator:
             t = k * T_s
 
             # (a) PMSM measurements + encoder.
+            #
+            # The FMU exposes i_motor (current at the motor terminals). When
+            # the LCL filter is active under Option C, the FOC controller's
+            # feedback signal is i_1 (the inverter-side current, == i_Lf
+            # inside the LCL state) instead — this places the LCL resonance
+            # *outside* the closed loop, avoiding the discrete-time
+            # anti-damping at f_pwm/2 that observer-driven active damping
+            # produced. In hardware this corresponds to placing the Hall
+            # sensors between the inverter FETs and L_f (standard practice
+            # for LCL-equipped drives — see memo.md §4 and the class
+            # docstring of LCLFilter).
             i_a, i_b, i_c, theta_m_true, omega_m_true, T_e = motor_fmu.measure()
-            (theta_m_meas, omega_m_meas, theta_e_meas, i_a_meas, i_b_meas, i_c_meas) = encoder.step(theta_m_true, omega_m_true, (i_a, i_b, i_c), t)
+            if lcl_filter is not None and inverter_mode == "switching":
+                i_a_ctrl, i_b_ctrl, i_c_ctrl = lcl_filter.i_Lf
+            else:
+                i_a_ctrl, i_b_ctrl, i_c_ctrl = i_a, i_b, i_c
+            (theta_m_meas, omega_m_meas, theta_e_meas, i_a_meas, i_b_meas, i_c_meas) = encoder.step(theta_m_true, omega_m_true, (i_a_ctrl, i_b_ctrl, i_c_ctrl), t)
             omega_e_meas = self.p * omega_m_meas
 
             # (a2) LCL state observers — advance one T_s using the inverter

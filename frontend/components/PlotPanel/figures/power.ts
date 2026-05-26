@@ -66,7 +66,7 @@ export const buildPowerTime: FigureBuilder = ({ table, meta }) => {
     yAxis: layout.yAxis,
     axisPointer: layout.axisPointer,
     dataZoom: layout.dataZoom,
-    legend: { top: 0, right: 8, textStyle: { fontSize: 10 } },
+    legend: { top: 0, right: 8, textStyle: { fontSize: 13 } },
     graphic: [
       cornerInfoBox([`V_max = Vdc/2 = ${Vmax.toFixed(1)} V`], layout.gridTops[1]),
     ],

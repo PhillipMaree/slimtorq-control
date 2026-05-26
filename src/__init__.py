@@ -1,4 +1,4 @@
-"""Typed application configuration loaded from ``config/app.yaml``.
+"""Typed application configuration loaded from ``config/config.yaml``.
 
 Living at the package root makes :func:`get_config` accessible as
 ``from . import get_config`` from any sibling module. The shape mirrors
@@ -31,7 +31,7 @@ class Config(BaseSettings):
         env_nested_max_split=1,
     )
 
-    config_path: ClassVar[Path] = ROOT / "config" / "app.yaml"
+    config_path: ClassVar[Path] = ROOT / "config" / "config.yaml"
 
     app: App
     cors: Cors

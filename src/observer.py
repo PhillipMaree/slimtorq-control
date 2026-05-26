@@ -69,6 +69,7 @@ _C_BY_MEASUREMENT: dict[str, np.ndarray] = {
     "capacitor_voltage": np.array([0.0, 1.0, 0.0]),
 }
 
+
 def compute_observer_gain(A: np.ndarray, C: np.ndarray, pole: float) -> np.ndarray:
     """Pole-place the Luenberger observer gain via Ackermann's formula.
 

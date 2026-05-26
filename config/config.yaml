@@ -5,6 +5,7 @@ app:
   version: "0.1.0"
   log_config_file: "logging.yaml"
   log_level: "info"
+  reload: true
 cors:
   allow_origins:
     - "http://localhost:3000"

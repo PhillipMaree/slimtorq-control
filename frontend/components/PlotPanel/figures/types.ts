@@ -9,26 +9,31 @@ export interface FigureInput {
 
 export type FigureBuilder = (input: FigureInput) => FigureSpec;
 
-// Tracking-error % normalized by a motor-relative peak (i_q_peak for currents,
-// te_peak_1s for torque). Computed over the trailing 80% of the run so the
-// transient doesn't dominate. Peak normalization keeps the d-axis badge
-// meaningful (i_d_ref = 0) and makes errors comparable across operating points.
+// Tracking-error % over the trailing 80% of the run (transient excluded).
+// Normalised by max|ref| in that window so the % matches what the user sees
+// on the plot. When |ref| is near zero (i_d_ref = 0), falls back to the
+// motor-relative peak passed in so the d-axis badge stays meaningful.
 import { col } from '@/lib/arrow';
-export function refTrackingErrPct(table: Table, measCol: string, refCol: string, peak: number): number {
+export function refTrackingErrPct(table: Table, measCol: string, refCol: string, fallbackPeak: number): number {
   const meas = col(table, measCol);
   const ref = col(table, refCol);
   const n = meas.length;
-  if (n < 4 || !(peak > 0)) return NaN;
+  if (n < 4) return NaN;
   const start = Math.floor(0.8 * n);
   let sumE = 0;
   let cnt = 0;
+  let refPeak = 0;
   for (let i = start; i < n; i++) {
     const e = meas[i] - ref[i];
     sumE += e * e;
     cnt++;
+    const ar = Math.abs(ref[i]);
+    if (ar > refPeak) refPeak = ar;
   }
   const errRms = Math.sqrt(sumE / cnt);
-  return (100 * errRms) / peak;
+  const denom = refPeak > 0.01 * Math.abs(fallbackPeak) ? refPeak : fallbackPeak;
+  if (!(denom > 0)) return NaN;
+  return (100 * errRms) / denom;
 }
 
 export function metaNum(meta: SimMeta, key: string, fallback: number): number {

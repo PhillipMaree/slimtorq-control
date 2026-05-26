@@ -127,7 +127,7 @@ export function stackedGrid(opts: StackedGridOpts): StackedGridResult {
       text: titles[i] ?? '',
       top: pct.titles[i].top,
       left: 'center',
-      textStyle: { fontSize: 12, color: '#1A1A1A', fontWeight: 'normal' },
+      textStyle: { fontSize: 14, color: '#1A1A1A', fontWeight: 'normal' },
     });
     grids.push({
       left: GRID_LEFT_PX,
@@ -181,7 +181,7 @@ export function freqGrid(opts: FreqGridOpts): StackedGridResult {
       text: titles[i] ?? '',
       top: pct.titles[i].top,
       left: 'center',
-      textStyle: { fontSize: 12, color: '#1A1A1A', fontWeight: 'normal' },
+      textStyle: { fontSize: 14, color: '#1A1A1A', fontWeight: 'normal' },
     });
     grids.push({
       left: GRID_LEFT_PX,
@@ -221,9 +221,9 @@ export function cornerInfoBox(lines: string[], gridTopPct: string) {
     style: {
       text,
       fill: '#1A1A1A',
-      fontSize: 10,
+      fontSize: 12,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      lineHeight: 12,
+      lineHeight: 15,
       backgroundColor: 'rgba(255, 255, 255, 0.82)',
       borderColor: '#E4E2DC',
       borderWidth: 1,
@@ -281,7 +281,7 @@ export function freqGuideMarkLines(guides: FreqGuide[]) {
     label: {
       formatter: g.label,
       color: g.color,
-      fontSize: 9,
+      fontSize: 11,
       position: 'insideEndTop' as const,
     },
   }));

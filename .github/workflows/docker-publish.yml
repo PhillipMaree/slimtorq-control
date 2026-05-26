@@ -1,9 +1,9 @@
-name: Build and publish Docker image
+name: Test, build, and publish Docker image
 
 on:
   push:
     branches:
-      - main
+      - "**"
     tags:
       - "v*"
   pull_request:
@@ -14,7 +14,31 @@ env:
   IMAGE_NAME: phillipmaree/slimtorq-control
 
 jobs:
+  test:
+    name: Pytest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen --all-extras --group dev
+
+      - name: Pytest
+        # test_ripple_below_one_pct.py is excluded from default collection
+        # in pyproject.toml — see the comment there.
+        run: uv run pytest -q
+
   build:
+    name: Build and publish image
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -48,8 +72,17 @@ jobs:
             type=raw,value=latest,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
             type=sha,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
 
+      - name: Decide whether to push
+        id: push
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && ( "${GITHUB_REF}" == "refs/heads/main" || "${GITHUB_REF}" == refs/tags/v* ) ]]; then
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Log in to Docker Hub
-        if: github.event_name == 'push'
+        if: steps.push.outputs.push == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
@@ -60,7 +93,7 @@ jobs:
         with:
           context: .
           file: ./compose/control/Dockerfile
-          push: ${{ github.event_name == 'push' }}
+          push: ${{ steps.push.outputs.push == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |

@@ -96,7 +96,7 @@ export const buildMechanicalTime: FigureBuilder = ({ table, meta }) => {
     yAxis: layout.yAxis,
     axisPointer: layout.axisPointer,
     dataZoom: layout.dataZoom,
-    legend: { top: 0, right: 8, textStyle: { fontSize: 10 } },
+    legend: { top: 0, right: 8, textStyle: { fontSize: 13 } },
     graphic: [
       cornerInfoBox([`RMS Δθ_m = ${rmsMech.toFixed(3)} mrad`, `ZOH ±ω·Ts_enc`], layout.gridTops[3]),
       cornerInfoBox([`RMS Δθ_e = ${rmsElec.toFixed(3)} mrad`], layout.gridTops[4]),

@@ -266,6 +266,20 @@ export const HELP: Record<string, HelpContent> = {
       </>
     ),
   },
+  'field:zeta_target': {
+    title: 'LCL active-damping target damping ratio (ζ_target)',
+    body: (
+      <>
+        <p>Damping ratio of the dominant closed-loop pole pair when LCL active damping is engaged (filter enabled). The active-damping gain K<sub>d</sub> is chosen so the resonance pole pair sits at <strong>ζ = ζ<sub>target</sub></strong>.</p>
+        <p><strong>ζ ≈ 0.7</strong> is the standard critical-damping target — drops the resonance peak without over-slowing the transient.</p>
+        <ul className="list-disc ml-4 space-y-1">
+          <li><strong>Lower ζ</strong> (0.3–0.5): faster step response, but more oscillatory — visible ringing in i<sub>q</sub> after a torque step.</li>
+          <li><strong>Higher ζ</strong> (1.0+): over-damped, sluggish — no ringing but the controller is slow to settle.</li>
+        </ul>
+        <p>Only consulted when the LCL filter is enabled.</p>
+      </>
+    ),
+  },
   'field:observer_pole_multiplier': {
     title: 'LCL observer pole multiplier (α_obs)',
     body: (

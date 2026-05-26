@@ -80,7 +80,7 @@ export function buildFftFigure(subplots: FftSubplotOpts[]): FigureBuilder {
       xAxis: layout.xAxis,
       yAxis: layout.yAxis,
       dataZoom: layout.dataZoom,
-      legend: { top: 0, right: 8, textStyle: { fontSize: 10 } },
+      legend: { top: 0, right: 8, textStyle: { fontSize: 13 } },
       series,
     };
     return { title: '', option, height: layout.cardHeight };

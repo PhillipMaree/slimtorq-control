@@ -38,7 +38,7 @@ def _resolve(p: str | Path) -> Path:
     return path if path.is_absolute() else ROOT / path
 
 
-# ---------- Application configuration sections (mirror config/app.yaml) ----------
+# ---------- Application configuration sections (mirror config/config.yaml) ----------
 class App(BaseModel):
     name: str
     host: str
@@ -46,6 +46,7 @@ class App(BaseModel):
     version: str
     log_config_file: str
     log_level: str
+    reload: bool = False
 
     @field_validator("log_config_file", mode="after")
     @classmethod
@@ -516,13 +517,27 @@ class FilterConfig(BaseModel):
     Component values are derived from a target cutoff frequency rather than
     exposed directly — `derive_components(L_s, f_c_target)` returns
     `(L_f, C_f, R_d)` with ``L_f = L_s`` (matched inductance), ``C_f`` sized
-    to put the LC corner at ``f_c_target``, and ``R_d`` at one-third of the
-    characteristic impedance for moderate passive damping.
+    to put the LC corner at ``f_c_target``, and ``R_d`` at the characteristic
+    impedance ``sqrt(L_f/C_f)`` — sized so passive damping alone delivers
+    ζ ≈ 0.7 on the LCL resonance, equivalent to what observer-driven active
+    damping was synthesising via ``K_d · ic_hat``.
+
+    Why passive-only damping at this value: the observer-driven AD path
+    (``-K_d · ic_hat``, ZOH-held between FOC ticks) acts as a virtual
+    resistor whose phase rotates to -π/2 as frequency approaches Nyquist
+    (``f_pwm/2``). At Nyquist the "damping" is no longer in phase with
+    ``dvc/dt`` — it is *anti*-damping. This pushed a closed-loop pole pair
+    onto the Nyquist axis and produced a sustained limit cycle at
+    ``f_pwm/2`` (see [docs/adr/](docs/adr/) if logged, or the critic
+    session that diagnosed it). Replacing AD with a real resistor at the
+    same effective value buys the same damping ratio without the
+    discrete-time phase hazard. Cost is ``I²·R_d`` dissipated in the
+    Cf-branch — manageable in industrial drives, must be heatsinked.
 
     Matching ``L_f`` to ``L_s`` (instead of the older ``L_s/4`` rule of thumb)
     pushes the LCL resonance higher (``f_res ≈ √2 · f_c_target``) and gives
     more inverter-side ripple attenuation; the 3rd-order pole-placement
-    tuner is replaced by Skogestad + analytic ``K_d``, which doesn't suffer
+    tuner is replaced by Skogestad on the LR-equivalent, which doesn't suffer
     the degenerate-``p_4`` failure that the L_s/4 design caused for high-L
     windings (e.g. 8-turn variants).
     """
@@ -535,7 +550,11 @@ class FilterConfig(BaseModel):
     def derive_components(L_s: float, f_c_target: float) -> tuple[float, float, float]:
         L_f = L_s
         C_f = 1.0 / ((2.0 * math.pi * f_c_target) ** 2 * L_f)
-        R_d = math.sqrt(L_f / C_f) / 3.0
+        # R_d = sqrt(L_f/C_f) — the LCL characteristic impedance. With L1 = Lload
+        # (matched), this puts the resonance damping ratio at ζ ≈ 0.7 from
+        # passive damping alone, matching what AD's K_d was synthesising
+        # before the discrete-time Nyquist anti-damping was diagnosed.
+        R_d = math.sqrt(L_f / C_f)
         return L_f, C_f, R_d
 
 

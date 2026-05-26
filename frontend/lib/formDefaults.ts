@@ -33,6 +33,6 @@ export const FORM_DEFAULTS: SimParams = {
   filter_enabled: false,
   filter_fc: 5000.0,
   vdc: null,
-  zeta_target: 0.7,
+  zeta_target: 0.0,
   observer_pole_multiplier: 3.0,
 };

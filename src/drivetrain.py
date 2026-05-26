@@ -229,14 +229,15 @@ def _plant_type_for(filter_enabled: bool) -> PlantType:
     return "lcl_with_active_damping" if filter_enabled else "lr"
 
 
-def _safe_lcl_tc(motor: PmsmModel, f_pwm: float, filter_fc: float) -> float:
+def _safe_lcl_tc(motor: PmsmModel, f_pwm: float, filter_fc: float, margin: float = 5.0) -> float:
     """Skogestad ``Tc`` that keeps closed-loop bandwidth safely below the
     LCL resonance.
 
-    Solves ``omega_c = 1/(Tc + tau_delay) <= omega_res / (5 * headroom)``
+    Solves ``omega_c = 1/(Tc + tau_delay) <= omega_res / (margin * headroom)``
     for ``Tc``, where ``tau_delay = 1.5 / f_pwm`` is the controller-+-PWM
-    dead-time used by Skogestad. Floored at ``tau_delay`` so ``Tc`` is at
-    least one dead-time.
+    dead-time used by Skogestad. ``margin`` matches the tuning rule's plant
+    gate: 5 for ``lcl_with_active_damping``, 10 for ``lcl_conservative``.
+    Floored at ``tau_delay`` so ``Tc`` is at least one dead-time.
     """
     lcl = LCLParams.from_filter_config(
         FilterConfig(enabled=True, f_c_target=filter_fc),
@@ -245,7 +246,7 @@ def _safe_lcl_tc(motor: PmsmModel, f_pwm: float, filter_fc: float) -> float:
     )
     omega_res = lcl.resonance_frequency_rad_s()
     tau_delay = 1.5 / float(f_pwm)
-    tc_min = (5.0 * _LCL_TC_SAFETY_HEADROOM) / omega_res - tau_delay
+    tc_min = (float(margin) * _LCL_TC_SAFETY_HEADROOM) / omega_res - tau_delay
     return max(tc_min, tau_delay)
 
 
@@ -271,35 +272,42 @@ def _auto_tune(
     (Modulus Optimum / Skogestad) on the LR plant.
     """
     if filter_enabled:
-        # LCL plant with active damping: Skogestad on the low-frequency
-        # equivalent (R_eq, L_eq) for the PI gains, plus an analytic ``Kd``
-        # that places the LCL resonance damping ratio at ``zeta_target``.
-        # The standard "virtual resistor across Cf" formula:
-        #     Kd = 2·ζ·√(L_total/Cf) − (R_1 + R_d_passive)
-        # where ``L_total`` is the parallel combination of ``L_f`` and
-        # ``L_load``. ``Kd`` floors at 0: if the passive damping ``R_d``
-        # plus motor resistance already exceeds the target, no active
-        # damping is needed.
+        # LCL plant. Two routes depending on whether the user wants active
+        # damping (zeta_target > 0) or passive-only:
+        #   - zeta_target > 0: Skogestad on (L_eq, R_eq) with the
+        #     "lcl_with_active_damping" margin (5), plus analytic
+        #         Kd = 2·ζ·√(L_total/Cf) − (R_1 + R_d_passive)
+        #     to damp the resonance pole pair to ``zeta_target``. Kd floors
+        #     at 0 — if passive damping already meets the target, AD is
+        #     unnecessary.
+        #   - zeta_target ≤ 0: AD is genuinely off (Kd = 0). Route through
+        #     "lcl_conservative" (margin 10) so the PI bandwidth respects
+        #     the *passive* damping budget; otherwise we'd tune as if AD
+        #     were active and the undamped resonance would ring.
         lcl = LCLParams.from_filter_config(
             FilterConfig(enabled=True, f_c_target=filter_fc),
             motor,
             _ts_for_tuning(f_pwm),
         )
         _, _, R_d_passive = FilterConfig.derive_components(motor.L_s, filter_fc)
-        tc_safe = _safe_lcl_tc(motor, f_pwm, filter_fc)
+        ad_on = float(zeta_target) > 0.0
+        tc_safe = _safe_lcl_tc(motor, f_pwm, filter_fc, margin=5.0 if ad_on else 10.0)
         tc_used = tc_safe if pi_tc is None else max(float(pi_tc), tc_safe)
         sk = skogestad_tuning(
             float(f_pwm),
             Rs=motor.R_s,
             Ls=motor.L_s,
-            plant_type="lcl_with_active_damping",
+            plant_type="lcl_with_active_damping" if ad_on else "lcl_conservative",
             lcl_params=lcl,
             k1=float(pi_k1),
             Tc=tc_used,
         )
-        L_total = (lcl.L1 * lcl.Lload) / (lcl.L1 + lcl.Lload)
-        Kd_target = 2.0 * float(zeta_target) * math.sqrt(L_total / lcl.Cf) - (lcl.R1 + R_d_passive)
-        Kd = max(0.0, Kd_target)
+        if ad_on:
+            L_total = (lcl.L1 * lcl.Lload) / (lcl.L1 + lcl.Lload)
+            Kd_target = 2.0 * float(zeta_target) * math.sqrt(L_total / lcl.Cf) - (lcl.R1 + R_d_passive)
+            Kd = max(0.0, Kd_target)
+        else:
+            Kd = 0.0
         return sk.Kp, sk.Ki, Kd
     if pi_mode == "skogestad":
         r = skogestad_tuning(

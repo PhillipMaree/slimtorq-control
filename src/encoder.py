@@ -94,7 +94,7 @@ if __name__ == "__main__":
     # quantized theta_meas at the LSB resolution, and omega_meas ~ true omega.
     import numpy as np
 
-    cfg = EncoderConfig(n_bits=22, A1=0.0, A2=0.0, A3=0.0, Ts_enc=1e-4)
+    cfg = EncoderConfig(n_bits=22, A1=0.0, A2=0.0, A3=0.0, Ts_enc=2e-4)
     enc = FluxEncoder(cfg)
     omega_true = 10.0  # rad/s
     Ts = 1e-5

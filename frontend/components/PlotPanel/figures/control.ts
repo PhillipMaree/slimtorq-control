@@ -79,7 +79,7 @@ export const buildControlTime: FigureBuilder = ({ table, meta }) => {
     yAxis: layout.yAxis,
     axisPointer: layout.axisPointer,
     dataZoom: layout.dataZoom,
-    legend: { top: 0, right: 8, textStyle: { fontSize: 10 } },
+    legend: { top: 0, right: 8, textStyle: { fontSize: 13 } },
     graphic: [
       cornerInfoBox([`RMS(e_d) = ${rmsED.toExponential(2)} A`, `RMS(e_q) = ${rmsEQ.toExponential(2)} A`], layout.gridTops[0]),
       cornerInfoBox([`V_max = Vdc/2 = ${Vmax.toFixed(1)} V`], layout.gridTops[1]),
@@ -180,7 +180,7 @@ export const buildControlFft: FigureBuilder = ({ table, meta }) => {
     xAxis: layout.xAxis,
     yAxis: layout.yAxis,
     dataZoom: layout.dataZoom,
-    legend: { top: 0, right: 8, textStyle: { fontSize: 10 } },
+    legend: { top: 0, right: 8, textStyle: { fontSize: 13 } },
     series,
   };
   return { title: '', option, height: layout.cardHeight };

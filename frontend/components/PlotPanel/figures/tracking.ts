@@ -52,10 +52,10 @@ export const buildTrackingTime: FigureBuilder = ({ table, meta }) => {
     yAxis: layout.yAxis,
     axisPointer: layout.axisPointer,
     dataZoom: layout.dataZoom,
-    legend: { top: 0, right: 8, textStyle: { fontSize: 10 } },
+    legend: { top: 0, right: 8, textStyle: { fontSize: 13 } },
     graphic: [
-      cornerInfoBox([`err = ${errT} % of Te_peak`], layout.gridTops[0]),
-      cornerInfoBox([`err = ${errQ} % of i_q_peak`], layout.gridTops[1]),
+      cornerInfoBox([`err = ${errT} % of |T_L_ref|_max`], layout.gridTops[0]),
+      cornerInfoBox([`err = ${errQ} % of |i_q_ref|_max`], layout.gridTops[1]),
       cornerInfoBox([`err = ${errD} % of i_q_peak`], layout.gridTops[2]),
     ],
     series: [
