@@ -39,7 +39,7 @@ COPY --from=frontend-builder /build/out ./frontend/out
 COPY ./compose/control/start /start
 RUN chmod +x /start
 
-# Server / paths come from config/app.yaml — env vars below only override
+# Server / paths come from config/config.yaml — env vars below only override
 # container-specific paths (writable volume mount + bundled frontend bundle).
 ENV ARTIFACTS__DIR=/data/artifacts
 ENV FRONTEND__DIST_DIR=/app/frontend/out
